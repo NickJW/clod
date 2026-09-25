@@ -226,7 +226,7 @@ function GettingStarted() {
   const steps = [
     { done: !!p.bible.premise.trim(), label: 'Describe your story in a few sentences', go: () => go('story') },
     { done: p.characters.length > 0, label: 'Add your main character', go: () => go('characters') },
-    { done: !!getPref('chatAppChosen', false) || getAISettings().providerId !== 'manual', label: 'Choose your AI helper: ChatGPT or Claude', go: () => go('settings') },
+    { done: !!getAISettings().apiKey, label: 'Connect your AI editor (free, about 3 minutes)', go: () => go('settings') },
     { done: manuscriptWords(p) >= 100, label: 'Write your first paragraph, rough is fine', go: () => go('write') },
     { done: !!p.lastBackupAt, label: 'Set up backups', go: () => go('settings') },
   ];

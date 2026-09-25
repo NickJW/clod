@@ -66,7 +66,7 @@ export function AIPanel() {
       {!connected && (
         <div className="ai-compose">
           <div className="note-box">
-            <b>Your AI editor isn't connected yet.</b> It takes about two minutes.
+            <b>Your AI editor isn't connected yet.</b> It's free and takes about 3 minutes. If someone set Nightjar up for you, open the setup link they sent.
             <div style={{ marginTop: 8 }}>
               <button className="btn primary small" onClick={() => go('settings')}>
                 Connect it
@@ -131,7 +131,7 @@ function Compose({ page }: { page: string }) {
   const [, force] = useState(0);
   // refresh selection hint when the author clicks into the panel
   const sel = needsSel || def.needs === 'selection-or-chapter' ? prefill?.selection ?? currentSelection() : undefined;
-  const est = useMemo(() => (getAISettings().apiKey && getAISettings().providerId !== 'manual' ? estimate(input()) : { tokens: 0, label: '' }), [mode, request, variant, prefill, sel?.text]); // eslint-disable-line
+  const est = useMemo(() => (getAISettings().apiKey && !['manual', 'gemini'].includes(getAISettings().providerId) ? estimate(input()) : { tokens: 0, label: '' }), [mode, request, variant, prefill, sel?.text]); // eslint-disable-line
 
   const canRun = !(def.needs === 'request' && !request.trim()) && !(needsSel && !sel) && !(mode === 'stuck' && !variant);
 

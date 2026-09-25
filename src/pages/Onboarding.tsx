@@ -124,29 +124,6 @@ export function Onboarding() {
     { q: 'Do you have a mystery?', body: <Voice value={a.mystery} onChange={(mystery) => set({ mystery })} placeholder="What happened? Who might have done it? What's the secret at the centre?" /> },
     { q: 'Do you know how it ends?', body: <Voice value={a.ending} onChange={(ending) => set({ ending })} placeholder="It's completely fine not to know yet." /> },
     { q: 'How should it feel to read?', body: <Voice value={a.feel} onChange={(feel) => set({ feel })} placeholder='e.g. "Disturbing but not gratuitous. Slow-burn. Claustrophobic small town."' /> },
-    {
-      q: 'Which AI helper do you use?',
-      body: (
-        <>
-          <p className="muted">Your editor works with the subscription you already have. You'll copy and paste between Nightjar and your chat app.</p>
-          <div className="chips" style={{ marginBottom: 14 }}>
-            {(['chatgpt', 'claude'] as const).map((x) => (
-              <button key={x} className={`chip${a.chatApp === x ? ' on' : ''}`} onClick={() => set({ chatApp: x })}>
-                {x === 'chatgpt' ? 'ChatGPT' : 'Claude'}
-              </button>
-            ))}
-          </div>
-          <div className="chips">
-            <button className={`chip${a.chatWhere === 'app' ? ' on' : ''}`} onClick={() => set({ chatWhere: 'app' })}>
-              I use the desktop app
-            </button>
-            <button className={`chip${a.chatWhere === 'web' ? ' on' : ''}`} onClick={() => set({ chatWhere: 'web' })}>
-              I use the website
-            </button>
-          </div>
-        </>
-      ),
-    },
   ];
 
   const finish = async () => {

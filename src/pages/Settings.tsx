@@ -1,7 +1,8 @@
 // Settings: connect the AI editor, appearance, export/import, backups, privacy.
 import { useEffect, useState } from 'react';
-import { getAISettings, getProvider, getUsage, resetUsage, saveAISettings } from '../ai/provider';
+import { getAISettings, getProvider, getUsage, makeSetupLink, resetUsage, saveAISettings } from '../ai/provider';
 import { defaultOpenAIModels, listOpenAIModels } from '../ai/openai';
+import { defaultGeminiModels, listGeminiModels } from '../ai/gemini';
 import { CHAT_APPS, type ChatApp, type ChatWhere } from '../components/ManualHost';
 import { AIError } from '../ai/errors';
 import { getPref, listSnapshots, setPref, type Snapshot } from '../storage/db';
@@ -94,18 +95,9 @@ export function Settings() {
           <h1>Settings</h1>
         </div>
       </div>
-      <ChatHelper />
-      <details className="group">
-        <summary>
-          <div>
-            <h3>Advanced: connect directly with an API key</h3>
-            <div className="muted small">Optional. Faster (no copy and paste), but paid separately per use. Not needed with a ChatGPT or Claude subscription.</div>
-          </div>
-        </summary>
-        <div className="inner">
-          <AISection />
-        </div>
-      </details>
+      <div className="card">
+        <AISection />
+      </div>
       <Appearance />
       <ExportSection />
       <ImportSection />
@@ -117,6 +109,13 @@ export function Settings() {
 }
 
 const SETUP: Record<string, { site: string; url: string; steps: string[]; placeholder: string; note?: string }> = {
+  gemini: {
+    site: 'aistudio.google.com/apikey',
+    url: 'https://aistudio.google.com/apikey',
+    placeholder: 'AIza…',
+    steps: ['Sign in with any Google account (Gmail).', 'Click "Create API key" (accept the terms if asked), then copy the key.', 'Paste it in the box below. Free, with no credit card needed.'],
+    note: 'Privacy: on Gemini\'s free tier, Google may use what you send to improve its products, and people may review it. If that matters for your unpublished novel, turn on billing for the key in Google AI Studio. Then it becomes private and pay-per-use (usually pennies).',
+  },
   anthropic: {
     site: 'console.anthropic.com',
     url: 'https://console.anthropic.com/settings/keys',
@@ -134,51 +133,50 @@ const SETUP: Record<string, { site: string; url: string; steps: string[]; placeh
 
 function ChatHelper() {
   const [, force] = useState(0);
-  const cur = getAISettings().providerId;
   const app = getPref<ChatApp>('chatApp', 'chatgpt');
   const where = getPref<ChatWhere>('chatWhere', 'app');
   const set = (k: string, v: string) => {
     setPref(k, v);
     setPref('chatAppChosen', true);
-    if (cur !== 'manual') saveAISettings({ providerId: 'manual' });
     force((n) => n + 1);
   };
   return (
-    <div className="card">
-      <h2>Your AI helper</h2>
-      <p className="muted">
-        Your editor works with the ChatGPT or Claude subscription you already have. When you ask for help, Nightjar prepares the request with your story details. You paste it into your chat app, copy the answer, and come back. No accounts or keys to set up.
-      </p>
-      {cur !== 'manual' && (
-        <div className="note-box" style={{ marginBottom: 12 }}>
-          You're currently connected with an API key (see Advanced below). Choosing an option here switches back to using your subscription.
-        </div>
-      )}
-      <div className="grid-2" style={{ marginTop: 10 }}>
-        <div className="field">
-          <span className="lab">Which do you use?</span>
-          <div className="chips">
-            {(['chatgpt', 'claude'] as ChatApp[]).map((a) => (
-              <button key={a} className={`chip${cur === 'manual' && app === a ? ' on' : ''}`} onClick={() => set('chatApp', a)}>
-                {CHAT_APPS[a].name}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="field">
-          <span className="lab">Where do you use it?</span>
-          <div className="chips">
-            <button className={`chip${cur === 'manual' && where === 'app' ? ' on' : ''}`} onClick={() => set('chatWhere', 'app')}>
-              The desktop app
-            </button>
-            <button className={`chip${cur === 'manual' && where === 'web' ? ' on' : ''}`} onClick={() => set('chatWhere', 'web')}>
-              The website
-            </button>
-          </div>
-        </div>
+    <div className="row" style={{ gap: 6 }}>
+      <span className="small">I use</span>
+      {(['chatgpt', 'claude'] as ChatApp[]).map((a) => (
+        <button key={a} className={`chip${app === a ? ' on' : ''}`} onClick={() => set('chatApp', a)}>
+          {CHAT_APPS[a].name}
+        </button>
+      ))}
+      <span className="small">in the</span>
+      <button className={`chip${where === 'app' ? ' on' : ''}`} onClick={() => set('chatWhere', 'app')}>
+        desktop app
+      </button>
+      <button className={`chip${where === 'web' ? ' on' : ''}`} onClick={() => set('chatWhere', 'web')}>
+        website
+      </button>
+    </div>
+  );
+}
+
+function SetupLink() {
+  const [link, setLink] = useState('');
+  return (
+    <div className="note-box" style={{ marginTop: 12 }}>
+      <b>Setting this up for someone else?</b> Create a link that connects their AI editor with one click. They just open it on their computer.
+      <div className="row" style={{ marginTop: 8 }}>
+        <button className="btn small primary" onClick={() => setLink(makeSetupLink())}>
+          Create a setup link
+        </button>
+        {link && (
+          <button className="btn small" onClick={() => navigator.clipboard?.writeText(link).then(() => toast('Link copied. Send it privately.'))}>
+            Copy link
+          </button>
+        )}
       </div>
-      <p className="small muted" style={{ margin: 0 }}>
-        Privacy tip: your chat app may use conversations to improve its AI. In ChatGPT, you can turn this off under Settings → Data controls → "Improve the model for everyone". In Claude, look under Settings → Privacy.
+      {link && <input className="input small" readOnly value={link} onFocus={(e) => e.target.select()} style={{ marginTop: 8 }} />}
+      <p className="tiny muted" style={{ margin: '6px 0 0' }}>
+        The link contains the key, so anyone with it can use your allowance. Send it privately (a text or email to them only) and delete the message once they've opened it. It never passes through Nightjar or GitHub: the part after "#" stays in the browser.
       </p>
     </div>
   );
@@ -199,19 +197,21 @@ function AISection() {
     if (patch.apiKey !== undefined || patch.providerId) setTest('');
   };
 
-  // ChatGPT: list the models available on her key.
+  // Gemini / ChatGPT: list the models available on this key.
+  const live = s.providerId === 'openai' || s.providerId === 'gemini';
   useEffect(() => {
     setModels([]);
     setModelErr('');
-    if (s.providerId !== 'openai' || s.apiKey.length < 20) return;
+    if (!live || s.apiKey.length < 20) return;
     const key = s.apiKey;
+    const gem = s.providerId === 'gemini';
     const t = setTimeout(() => {
-      listOpenAIModels(key)
+      (gem ? listGeminiModels(key) : listOpenAIModels(key))
         .then((ids) => {
           setModels(ids);
           const cur = getAISettings();
           if (ids.length && (!cur.model || !ids.includes(cur.model))) {
-            saveAISettings(defaultOpenAIModels(ids));
+            saveAISettings(gem ? defaultGeminiModels(ids) : defaultOpenAIModels(ids));
             setS(getAISettings());
           }
         })
@@ -234,14 +234,15 @@ function AISection() {
     <div id="ai">
       <h2>Your AI editor</h2>
       <p className="muted">
-        Your editor connects directly from this computer to the AI company you choose, with your own key. There's no middleman, and you pay only for what you use.
+        Your editor connects directly from this computer to the AI you choose. Everything happens right here in Nightjar. Set this up once (it takes about 3 minutes), then use <b>Create a setup link</b> to connect another computer with one click.
       </p>
       <label className="field" style={{ maxWidth: 520 }}>
         <span className="lab">Which AI?</span>
         <select className="input" value={s.providerId} onChange={(e) => save({ providerId: e.target.value })}>
-          <option value="anthropic">Claude (Anthropic): recommended, and what the editor was tuned with</option>
-          <option value="openai">ChatGPT (OpenAI API key)</option>
-          <option value="manual">My ChatGPT or Claude subscription (copy &amp; paste, no key)</option>
+          <option value="gemini">Google Gemini: free (recommended)</option>
+          <option value="anthropic">Claude (Anthropic): best writing quality, pay per use</option>
+          <option value="openai">ChatGPT (OpenAI): pay per use</option>
+          <option value="manual">Copy &amp; paste with a ChatGPT or Claude subscription</option>
         </select>
       </label>
       {s.providerId === 'manual' && (
@@ -251,8 +252,11 @@ function AISection() {
             Chat subscriptions (ChatGPT Plus, Claude Pro) can't be connected to other apps directly, so this works by copy &amp; paste. When you ask your editor for something, a small window opens: copy the prepared request, paste it into ChatGPT or Claude, then paste the answer back. You keep all the same buttons: Accept, Use this, and so on.
           </p>
           <p style={{ margin: 0 }} className="small">
-            It costs nothing beyond your subscription, but it takes a few more clicks, and automatic chapter summaries are switched off. For a smoother experience, connect a Claude or OpenAI key instead.
+            It costs nothing beyond your subscription, but it takes a few more clicks, and automatic chapter summaries are switched off. For everything to happen inside Nightjar, choose Google Gemini (free) above instead.
           </p>
+          <div style={{ marginTop: 10 }}>
+            <ChatHelper />
+          </div>
         </div>
       )}
       {s.providerId !== 'manual' && !s.apiKey && (
@@ -289,12 +293,13 @@ function AISection() {
         <span className="hint" style={{ marginTop: 6 }}>Stored only in this browser on this computer. Never included in backups or exports. Each AI keeps its own key, so you can switch back and forth.</span>
       </label>
       {test === 'ok' && <div className="ok-box">✓ Connected. Your editor is ready.</div>}
+      {s.apiKey && <SetupLink />}
       {test && test !== 'ok' && test !== 'testing' && <div className="err-box">{test}</div>}
 
       <div className="grid-2" style={{ marginTop: 18 }}>
         <label className="field">
           <span className="lab">Model</span>
-          {s.providerId === 'openai' ? (
+          {live ? (
             models.length ? (
               <select className="input" value={s.model} onChange={(e) => save({ model: e.target.value })}>
                 {models.map((m) => (
@@ -317,7 +322,7 @@ function AISection() {
           )}
           {modelErr && <span className="hint" style={{ color: 'var(--danger)' }}>{modelErr}</span>}
           <span className="hint" style={{ marginTop: 6 }}>
-            {s.providerId === 'openai' ? `Small jobs like chapter summaries use ${s.fastModel || 'a smaller model'}.` : 'Chapter summaries always use the faster, cheaper model.'}
+            {live ? `Small jobs like chapter summaries use ${s.fastModel || 'a smaller model'}.${s.providerId === 'gemini' ? ' "Flash" models have the most generous free limits.' : ''}` : 'Chapter summaries always use the faster, cheaper model.'}
           </span>
         </label>
         <label className="field">

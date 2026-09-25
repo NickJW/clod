@@ -12,15 +12,13 @@ A calm, private writing studio for a first-time novelist writing a dark mystery 
 6. **Talk**: click the microphone anywhere and speak instead of typing (Chrome and Edge).
 7. **I'm stuck** and **What should I work on?** are on the Home page whenever you need them.
 
-### Using the AI editor with your ChatGPT or Claude subscription
-There's nothing to set up. Tell Nightjar once (during setup, or in Settings) whether you use **ChatGPT or Claude**, and whether it's the **desktop app or the website**. When you ask your editor for help:
-1. Click **Copy the request**. It already includes the relevant parts of your story.
-2. Switch to ChatGPT or Claude, paste it into a new chat, and send. (Follow-up questions go in the same chat.)
-3. Copy the answer and come back. Nightjar fills it in by itself, and you click **Use this answer**.
+### Connecting the AI editor (free, set up once)
+The AI editor works inside Nightjar using **Google Gemini's free tier**.
+1. Whoever sets it up opens **Settings & Backup → Your AI editor**, goes to aistudio.google.com/apikey, signs in with a Google account, clicks **Create API key**, and pastes it in. There's no credit card and no cost.
+2. To connect someone else's computer, click **Create a setup link** and send it to them privately. They just open it and they're connected. The key travels after the `#` in the link, so it's never sent to any server.
 
-Everything else (Accept / Keep mine, Use this / Maybe / Not for me) works exactly the same. The whole app also works without any AI at all.
-
-*Advanced (optional):* Settings → "Advanced: connect directly with an API key" connects Claude or OpenAI directly, with no copy and paste, paid per use.
+*Privacy:* on the free tier, Google may use requests to improve its products. Turning on billing for the key makes it private (pay per use, usually pennies).
+*Other options* in the same menu: Claude or ChatGPT with a pay-per-use key (Claude gives the best writing quality), or copy & paste with a ChatGPT or Claude subscription.
 
 ### Keeping your work safe
 - Everything is saved in this browser on this computer. There's no account, no server and no tracking.
