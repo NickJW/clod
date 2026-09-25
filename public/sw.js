@@ -12,6 +12,7 @@ self.addEventListener('fetch', (e) => {
   const sameOrigin = url.origin === self.location.origin;
   const fonts = url.hostname === 'fonts.googleapis.com' || url.hostname === 'fonts.gstatic.com';
   if (!sameOrigin && !fonts) return; // never touch AI requests
+  if (/\.(mp4|webm)$/.test(url.pathname)) return; // video uses range requests; let the browser stream it
 
   if (req.mode === 'navigate') {
     e.respondWith(

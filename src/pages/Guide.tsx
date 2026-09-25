@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { GUIDE, guideDone, nextStep, setGuideDone, type GuideStep } from '../story/guide';
 import { setState, useApp, useProject } from '../story/store';
 import { openEditor } from '../ai/session';
-import { Icon, Modal } from '../components/ui';
+import { Icon, Modal, TourButton } from '../components/ui';
 import { LESSONS } from '../story/lessons';
 
 export function startStep(i: number) {
@@ -25,6 +25,9 @@ export function Guide() {
           <p className="lead">
             The tools in this studio, in the order that works best. Go at your own pace. Skip around, and come back any time using <b>Guide</b> in the menu.
           </p>
+          <div style={{ marginTop: 12 }}>
+            <TourButton className="btn primary" />
+          </div>
         </div>
         <div className="card" style={{ padding: '14px 20px', textAlign: 'center' }}>
           <div className="serif" style={{ fontSize: '2rem' }}>

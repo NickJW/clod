@@ -415,3 +415,33 @@ export function Markdown({ text }: { text: string }) {
   flush();
   return <div className="md">{out}</div>;
 }
+
+/** "Watch the video tour": a narrated walkthrough of the whole studio. */
+export function TourButton({ className = 'btn', label = 'Watch the video tour (7 min)' }: { className?: string; label?: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button className={className} onClick={() => setOpen(true)}>
+        ▶ {label}
+      </button>
+      {open && (
+        <Modal onClose={() => setOpen(false)} wide>
+          <div className="row" style={{ marginBottom: 10 }}>
+            <h2 style={{ margin: 0 }}>A tour of your studio</h2>
+            <span className="spacer" />
+            <button className="btn ghost small" onClick={() => setOpen(false)}>
+              Close
+            </button>
+          </div>
+          <video poster="./tour/poster.jpg" controls autoPlay preload="metadata" style={{ width: '100%', borderRadius: 10, background: '#000' }}>
+            <source src="./tour/nightjar-tour.webm" type="video/webm" />
+            <source src="./tour/nightjar-tour.mp4" type="video/mp4" />
+          </video>
+          <p className="small muted" style={{ marginTop: 8 }}>
+            Tip: click the square in the bottom-right corner of the video for full screen. You can pause at any time and try each step yourself.
+          </p>
+        </Modal>
+      )}
+    </>
+  );
+}

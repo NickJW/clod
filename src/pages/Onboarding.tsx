@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { createProject, useApp, openProject, deleteProject, setState } from '../story/store';
 import { newCharacter, newIdea, newProject } from '../story/factory';
 import { demoProject } from '../story/seed';
-import { AutoTextarea, Icon, confirmDialog } from '../components/ui';
+import { AutoTextarea, Icon, confirmDialog, TourButton } from '../components/ui';
 import { timeAgo } from '../story/reference';
 import { readBackup } from '../services/exporter';
 import { useSpeech } from '../editor/speech';
@@ -86,6 +86,9 @@ export function Onboarding() {
             You bring the story. Nightjar keeps everything organised, and your AI editor helps you think, plan and polish, one piece at a time. You stay in charge of every decision.
           </p>
           <p className="muted">A few quick questions will get you started. You can skip any of them and change everything later.</p>
+          <p>
+            <TourButton className="btn" label="First, watch a 7-minute video tour" />
+          </p>
           <label className="field">
             <span className="lab">Does your book have a working title?</span>
             <input className="input serif" value={a.title} onChange={(e) => set({ title: e.target.value })} placeholder="It's fine to leave this blank" autoFocus />

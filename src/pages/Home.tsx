@@ -8,7 +8,7 @@ import { GUIDE, nextStep } from '../story/guide';
 import { startStep } from './Guide';
 import { openEditor } from '../ai/session';
 import { chapterNumber, countWords, dailyGoal, manuscriptWords, readingTime, timeAgo, todayWords, writingStreak } from '../story/reference';
-import { promptDialog } from '../components/ui';
+import { promptDialog, TourButton } from '../components/ui';
 import { Icon } from '../components/ui';
 import { backupProject } from '../services/exporter';
 import type { ProjectStatus } from '../types';
@@ -83,6 +83,7 @@ export function Home() {
           <button className="btn big primary" onClick={() => startStep(nextStep(p))} title="Your step-by-step guide">
             <Icon name="compass" /> Guide, step {nextStep(p) + 1}: {GUIDE[nextStep(p)].title}
           </button>
+          <TourButton className="btn big" label="Watch the video tour" />
           <button className="btn big" onClick={() => openEditor({ actionId: 'stuck' })}>
             <Icon name="compass" /> I'm stuck
           </button>
