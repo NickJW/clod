@@ -67,6 +67,12 @@ export type ActionId =
   | 'research'
   | 'shape'
   | 'extract'
+  | 'backwards'
+  | 'connect'
+  | 'hiddenConnections'
+  | 'betaReader'
+  | 'interview'
+  | 'pitch'
   | 'ask';
 
 export interface ActionDef {
@@ -112,6 +118,22 @@ export const TWIST_KINDS = [
 ];
 
 export const STUCK_KINDS = ['Plot', 'Character', 'Scene', 'Mystery', 'Romance', 'Pacing', 'Ending', 'Prose', 'Research', 'I don\'t know'];
+
+function endingText(p: Project): string {
+  const e = p.ending;
+  return [
+    e.resolution && `Resolution: ${e.resolution}`,
+    e.characterArcs && `Where characters end up: ${e.characterArcs}`,
+    e.romance && `Romance: ${e.romance}`,
+    e.secrets && `Secrets that come out: ${e.secrets}`,
+    e.intentionallyAmbiguous && `Deliberately ambiguous: ${e.intentionallyAmbiguous}`,
+    e.theme && `Theme: ${e.theme}`,
+    e.finalImage && `Final image: ${e.finalImage}`,
+    e.aftermath && `Aftermath: ${e.aftermath}`,
+  ]
+    .filter(Boolean)
+    .join('\n') || '(Not written yet. Use the mystery truth and premise, and ask her about the ending in "questions".)';
+}
 
 function passage(i: JobInput, p: Project): { text: string; label: string } {
   if (i.selection?.text.trim()) return { text: i.selection.text, label: 'the selected passage' };
@@ -572,6 +594,110 @@ export const ACTIONS: Record<ActionId, ActionDef> = {
         focusText: ch?.text,
         user: `Read ${ch ? chapterLabel(p, ch.id) : 'this chapter'} and list what it ESTABLISHES that is NOT already recorded in the story bible: facts, clues (or red herrings), events for the timeline, what a character now believes, new characters, new places. Only include things actually on the page. Don't add interpretation or suggestions. Skip anything already recorded, even if worded differently. At most 12 items, most important first.\n\nRespond ONLY with JSON in a \`\`\`json code block: {"items": [{"kind": "fact" | "clue" | "event" | "belief" | "character" | "place", "title": "short name", "detail": "one or two sentences, quoting the text where useful", "characters": ["names involved"], "when": "time/date if stated"}]}\n\nCHAPTER TEXT:\n"""${ch?.text ?? ''}"""`,
         craft: false,
+      };
+    },
+  },
+  backwards: {
+    id: 'backwards',
+    label: 'Plan backwards from my ending',
+    blurb: 'Starts from your ending and works back: what must be true, what to plant, and where.',
+    category: 'plot',
+    build: (p, i) => ({
+      role: 'architect',
+      scope: 'whole',
+      output: 'extract',
+      maxTokens: 3500,
+      user: `Work BACKWARDS from the author's planned ending (see "Ending" below and the mystery truth) to build the path the book needs. For the ending to land, what must the reader have seen, learned or felt, and when? Cover: the mystery solution (clues and their placement), character arcs (the moments that change them), the romance, major secrets and their reveals, and the final image's setups. Mark each item "have": true if the story bible already covers it, false if it's missing. Suggest a chapter number where it belongs (the book currently has ${p.chapters.length} chapters of a planned ~${p.targetChapters}). Order from the beginning of the book to the end. Maximum 14 items. Mark everything as a suggestion. Don't change her ending.\n\nENDING PLAN:\n${endingText(p)}${req(i)}\n\nRespond ONLY with JSON in a \`\`\`json code block: {"summary": "one or two sentences on the overall shape", "items": [{"kind": "clue" | "scene" | "secret" | "fact" | "event" | "character", "title": "short name", "detail": "what and why it's needed for the ending", "chapter": 7, "have": false, "characters": ["names"]}], "questions": ["what she needs to decide"]}`,
+      craft: false,
+    }),
+  },
+  connect: {
+    id: 'connect',
+    label: 'Connect these',
+    blurb: 'How could these pieces of your story be connected? A few options, with the pros and cons of each.',
+    needs: 'request',
+    category: 'plot',
+    build: (_p, i) => ({
+      role: 'mystery',
+      scope: 'mystery',
+      output: 'options',
+      maxTokens: 3000,
+      user: `The author wants to connect these pieces of her story:\n${i.request}\n\nPropose 3-4 distinct, believable ways they could be connected, grounded in her canon (never contradict CANON; never reuse SET ASIDE ideas). Favour connections that deepen character and make earlier moments mean more in hindsight. Avoid coincidence.\n\n${FORMAT.options}`,
+      craft: false,
+    }),
+  },
+  hiddenConnections: {
+    id: 'hiddenConnections',
+    label: 'Find hidden connections',
+    blurb: 'Looks across your whole story for threads that could tie together in satisfying ways.',
+    category: 'plot',
+    build: (_p, i) => ({
+      role: 'architect',
+      scope: 'whole',
+      output: 'findings',
+      maxTokens: 2500,
+      user: `Look across the whole story bible for HIDDEN CONNECTIONS the author may not have noticed: characters, objects, places, clues, secrets or events that could be linked so that earlier moments pay off, coincidences become causes, and the ending feels inevitable. Also note elements that currently connect to nothing. For each finding, explain the possible connection and what it would add. These are possibilities, not instructions.${req(i)}\n\n${FORMAT.findings}`,
+      craft: false,
+    }),
+  },
+  betaReader: {
+    id: 'betaReader',
+    label: 'Read it like a reader',
+    blurb: 'A first reader who only knows what\'s on the page tells you what they felt, what confused them, and who they suspect.',
+    build: (p, i) => {
+      const ch = p.chapters.find((c) => c.id === (i.chapterId ?? p.currentChapterId));
+      const idx = ch ? p.chapters.indexOf(ch) : 0;
+      const before = p.chapters
+        .slice(0, idx)
+        .map((c, n) => `Chapter ${n + 1}: ${c.summary || c.outline.happens || '(no summary)'}`)
+        .join('\n');
+      return {
+        role: 'developmental',
+        scope: 'minimal',
+        output: 'text',
+        maxTokens: 1800,
+        user: `Act as a thoughtful first reader of dark mystery fiction (a "beta reader"), NOT an editor. You know ONLY what's on the page so far: nothing about the author's plans or the solution.${before ? `\n\nWhat happened in earlier chapters:\n${before}` : ''}\n\nNow you've just read ${ch ? `Chapter ${idx + 1}` : 'this chapter'}:\n<chapter>${ch?.text ?? ''}</chapter>\n\nWrite your honest reader's reaction in plain, warm language, under these headings: "What I felt", "Where I was gripped", "Where my attention drifted or I got confused" (quote a few words), "Who I suspect right now, and why", "What I think will happen next", "Questions I'm carrying into the next chapter". Be specific and honest. Don't give writing advice. Under 450 words.${req(i)}`,
+        craft: false,
+      };
+    },
+  },
+  interview: {
+    id: 'interview',
+    label: 'Interview this character',
+    blurb: 'Talk with your character in their own voice to discover how they speak and what they hide. Ask follow-up questions below the answer.',
+    needs: 'request',
+    placeholder: 'Ask them anything, e.g. "Where were you the night Tess died?"',
+    build: (p, i) => {
+      const c = p.characters.find((x) => x.id === i.characterId);
+      return {
+        role: 'character',
+        scope: 'whole',
+        output: 'text',
+        maxTokens: 1000,
+        characterIds: c ? [c.id] : [],
+        user: `Role-play as ${c?.name ?? 'this character'} being interviewed by the author, for the rest of this conversation. Answer in first person, in their own voice, diction and rhythm (see their profile). You know ONLY what ${c?.name ?? 'they'} would know at this point in the story. If they would lie, evade, deflect or get defensive, do that, in character, and let small tells show. Keep answers short, like real speech (1-3 short paragraphs). Don't step out of character, and don't reveal plot solutions they wouldn't admit.\n\nThe author asks: "${i.request ?? ''}"`,
+        craft: true,
+      };
+    },
+  },
+  pitch: {
+    id: 'pitch',
+    label: 'Write my pitch',
+    blurb: 'A one-line logline, a back-cover blurb, or a one-page synopsis, for when you\'re ready to share your book.',
+    build: (_p, i) => {
+      const kind = i.variant ?? 'blurb';
+      const how: Record<string, string> = {
+        logline: 'Write 5 alternative one-sentence loglines (under 35 words each): protagonist, inciting problem, stakes, and the hook. No spoilers.',
+        blurb: 'Write a back-cover blurb (150-200 words): the hook, the protagonist and what she wants, the rising threat, and a final line that makes the reader need to know. No spoilers. Avoid blurb clichés ("in a world where", "nothing is as it seems").',
+        synopsis: 'Write a one-page synopsis (about 500 words) in present tense, as agents expect: the full story INCLUDING the ending and the solution to the mystery, main characters in caps on first mention, and the emotional arc. Plain, confident prose.',
+      };
+      return {
+        role: 'architect',
+        scope: 'whole',
+        output: 'text',
+        maxTokens: 2000,
+        user: `${how[kind] ?? how.blurb} Base it only on the story bible and chapter summaries.${req(i)}`,
+        craft: true,
       };
     },
   },

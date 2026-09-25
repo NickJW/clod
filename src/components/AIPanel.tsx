@@ -20,7 +20,7 @@ import {
 } from '../ai/session';
 import { getAISettings } from '../ai/provider';
 import { addItem, getState, go, patchItem, toast, useApp } from '../story/store';
-import { newBelief, newCharacter, newClue, newEvent, newFact, newIdea, newNote, newPlace } from '../story/factory';
+import { newBelief, newCharacter, newClue, newEvent, newFact, newIdea, newNote, newPlace, newSecret } from '../story/factory';
 import { checkProse } from '../editor/proseCheck';
 import { applyReplacement, currentSelection, cursorSelection, insertText } from '../editor/bridge';
 import { diffWords } from '../editor/diff';
@@ -223,6 +223,8 @@ function QuickStart() {
     { id: 'continuity' },
     { id: 'missing' },
     { id: 'extract' },
+    { id: 'betaReader' },
+    { id: 'hiddenConnections' },
   ];
   return (
     <div>
@@ -382,14 +384,19 @@ const EXTRACT_LABEL: Record<ExtractItem['kind'], string> = {
   belief: 'Belief',
   character: 'New character',
   place: 'New place',
+  scene: 'Scene',
+  secret: 'Secret',
 };
 
-function ExtractResult({ t, chapterId }: { t: Thread; chapterId: string }) {
+function ExtractResult({ t, chapterId: chapterIdIn }: { t: Thread; chapterId: string }) {
   const items = t.parsed?.items;
   if (!items) return <Markdown text={t.raw} />;
-  if (!items.length) return <div className="ok-box">Your story bible already covers everything this chapter establishes.</div>;
+  const backwards = t.input.actionId === 'backwards';
+  if (!items.length) return <div className="ok-box">{backwards ? 'Nothing to add.' : 'Your story bible already covers everything this chapter establishes.'}</div>;
   const add = (it: ExtractItem, i: number, status: CanonStatus) => {
     const p = getState().project!;
+    // For "plan backwards", place things in the suggested chapter.
+    const chapterId = backwards ? (it.chapter && p.chapters[it.chapter - 1]?.id) || '' : chapterIdIn;
     const ids = it.characters.map((n) => p.characters.find((c) => c.name.toLowerCase().includes(n.toLowerCase().split(' ')[0]))?.id).filter((x): x is string => !!x);
     const text = it.detail || it.title;
     if (it.kind === 'fact') addItem('facts', newFact(text, { readerLearnsChapterId: chapterId, status }));
@@ -398,24 +405,40 @@ function ExtractResult({ t, chapterId }: { t: Thread; chapterId: string }) {
     if (it.kind === 'belief') addItem('beliefs', newBelief(ids[0] ?? '', { belief: text, sinceChapterId: chapterId, status }));
     if (it.kind === 'character') addItem('characters', newCharacter(it.title, { fields: { personality: it.detail }, status }));
     if (it.kind === 'place') addItem('places', newPlace({ name: it.title, description: it.detail }));
-    markHandled(t.id, i, status === 'canon' ? 'Added as decided' : 'Added as a possibility');
+    if (it.kind === 'secret') addItem('secrets', newSecret({ title: it.title, description: it.detail, holderIds: ids, revealChapterId: chapterId, status }));
+    if (it.kind === 'scene') {
+      const ch = p.chapters.find((c) => c.id === chapterId);
+      if (ch) patchItem('chapters', ch.id, { outline: { ...ch.outline, plan: `${ch.outline.plan ? ch.outline.plan + '\n\n' : ''}• ${it.title}: ${it.detail}` } });
+      else addItem('ideas', newIdea(`${it.title}: ${it.detail}`, { status, category: 'scene', source: 'ai' }));
+    }
+    const where = chapterId && it.kind === 'scene' ? ` to ${chapterLabel(p, chapterId)}'s plan` : '';
+    markHandled(t.id, i, status === 'canon' ? `Added${where}` : 'Added as a possibility');
   };
   return (
     <>
-      <p className="small muted">Found in {chapterLabel(getState().project!, chapterId)}. Add what's right. Skip anything that isn't.</p>
+      {backwards ? (
+        <>
+          {t.parsed?.summary && <p style={{ fontSize: '0.95rem' }}>{t.parsed.summary}</p>}
+          <p className="small muted">From the start of the book to your ending. Green ones are already in your story. Add the missing ones you like.</p>
+        </>
+      ) : (
+        <p className="small muted">Found in {chapterLabel(getState().project!, chapterIdIn)}. Add what's right. Skip anything that isn't.</p>
+      )}
       {items.map((it, i) => (
-        <div key={i} className={`opt${t.handled[i] ? ' done' : ''}`}>
+        <div key={i} className={`opt${t.handled[i] || it.have ? ' done' : ''}`}>
           <div className="row" style={{ gap: 6 }}>
+            {backwards && it.chapter ? <span className="pill accent">Ch. {it.chapter}</span> : null}
             <span className="pill neutral">{EXTRACT_LABEL[it.kind]}</span>
             <b>{it.title}</b>
+            {it.have && <span className="pill canon">✓ Already there</span>}
           </div>
           <div className="small" style={{ margin: '4px 0' }}>{it.detail}</div>
-          {t.handled[i] ? (
+          {it.have ? null : t.handled[i] ? (
             <div className="tiny" style={{ color: 'var(--ok)' }}>✓ {t.handled[i]}</div>
           ) : (
             <div className="row" style={{ gap: 6 }}>
               <button className="btn primary small" onClick={() => add(it, i, 'canon')}>
-                Add to story bible
+                {it.kind === 'scene' && backwards ? `Add to chapter plan` : 'Add to story bible'}
               </button>
               {it.kind !== 'place' && (
                 <button className="btn small" onClick={() => add(it, i, 'possibility')}>
@@ -429,6 +452,16 @@ function ExtractResult({ t, chapterId }: { t: Thread; chapterId: string }) {
           )}
         </div>
       ))}
+      {t.parsed?.questions && t.parsed.questions.length > 0 && (
+        <div className="note-box" style={{ marginTop: 10 }}>
+          <b>To decide</b>
+          <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>
+            {t.parsed.questions.map((q, k) => (
+              <li key={k}>{q}</li>
+            ))}
+          </ul>
+        </div>
+      )}
     </>
   );
 }

@@ -7,7 +7,8 @@ import { getPref, setPref } from '../storage/db';
 import { GUIDE, nextStep } from '../story/guide';
 import { startStep } from './Guide';
 import { openEditor } from '../ai/session';
-import { chapterNumber, countWords, manuscriptWords, readingTime, timeAgo, todayWords } from '../story/reference';
+import { chapterNumber, countWords, dailyGoal, manuscriptWords, readingTime, timeAgo, todayWords, writingStreak } from '../story/reference';
+import { promptDialog } from '../components/ui';
 import { Icon } from '../components/ui';
 import { backupProject } from '../services/exporter';
 import type { ProjectStatus } from '../types';
@@ -61,9 +62,10 @@ export function Home() {
           </div>
           <div className="small muted" style={{ marginTop: 6 }}>
             {pct}% of a {p.targetWords.toLocaleString()}-word novel · {readingTime(words)}
-            {todayWords(p) > 0 && <span className="today"> · Today: +{todayWords(p).toLocaleString()} words</span>}
+
           </div>
-          <div style={{ marginTop: 26 }}>
+          <DailyGoal />
+          <div style={{ marginTop: 22 }}>
             <button className="btn primary big" onClick={() => go('write')}>
               <Icon name="write" /> Continue writing: Chapter {curNo}
               {cur.title ? `, ${cur.title}` : ''}
@@ -256,6 +258,43 @@ function GettingStarted() {
           </li>
         ))}
       </ul>
+    </div>
+  );
+}
+
+function DailyGoal() {
+  const p = useProject();
+  const [, force] = useState(0);
+  const today = todayWords(p);
+  const goal = dailyGoal(p);
+  const streak = writingStreak(p);
+  const pct = Math.min(100, Math.round((today / Math.max(1, goal)) * 100));
+  return (
+    <div style={{ marginTop: 18, padding: '12px 14px', background: 'var(--bg)', borderRadius: 10 }}>
+      <div className="row" style={{ gap: 8 }}>
+        <b className="small">Today</b>
+        <span className="small">
+          {today.toLocaleString()} of {goal.toLocaleString()} words{today >= goal ? '. Goal reached, well done.' : ''}
+        </span>
+        <span className="spacer" />
+        {streak > 1 && <span className="pill canon">{streak}-day writing streak</span>}
+        <button
+          className="btn ghost small"
+          onClick={async () => {
+            const v = await promptDialog('Daily word goal', 'Pick something that feels easy. Small daily progress adds up to a book.', { value: String(goal), ok: 'Set goal' });
+            const n = parseInt(v ?? '');
+            if (n > 0) {
+              setPref(`goal:${p.id}`, n);
+              force((x) => x + 1);
+            }
+          }}
+        >
+          Change goal
+        </button>
+      </div>
+      <div className="progress" style={{ marginTop: 8, height: 6 }}>
+        <div style={{ width: `${Math.max(2, pct)}%` }} />
+      </div>
     </div>
   );
 }

@@ -352,6 +352,7 @@ function ChapterEditor({ p, ch, onRead }: { p: Project; ch: Chapter; onRead: () 
               { label: 'Read the whole book', onClick: onRead },
               { label: 'Italic', hint: 'Select words first · Ctrl+I', onClick: toggleItalic },
               { label: 'Insert a scene break', hint: 'A centred * between scenes', onClick: sceneBreak },
+              { label: 'Read it like a reader', hint: 'A first reader\'s honest reaction to this chapter', onClick: () => openEditor({ actionId: 'betaReader', chapterId: ch.id }, true) },
               { label: 'Update my story bible from this chapter', hint: 'Your editor lists new facts, clues and events', onClick: () => openEditor({ actionId: 'extract', chapterId: ch.id }, true) },
               { label: 'Save a version now', onClick: saveVersionNow },
             ]}

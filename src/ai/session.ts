@@ -24,7 +24,9 @@ export interface Finding {
 }
 
 export interface ExtractItem {
-  kind: 'fact' | 'clue' | 'event' | 'belief' | 'character' | 'place';
+  kind: 'fact' | 'clue' | 'event' | 'belief' | 'character' | 'place' | 'scene' | 'secret';
+  chapter?: number;
+  have?: boolean;
   title: string;
   detail: string;
   characters: string[];
@@ -349,9 +351,11 @@ export function parse(kind: OutputKind, text: string): Parsed {
     return { prose: prose.trim(), editorNote: note?.trim() };
   }
   if (kind === 'extract') {
-    const j = extractJson(text) as { items?: unknown[] } | null;
-    const kinds = ['fact', 'clue', 'event', 'belief', 'character', 'place'];
+    const j = extractJson(text) as { items?: unknown[]; summary?: unknown; questions?: unknown[] } | null;
+    const kinds = ['fact', 'clue', 'event', 'belief', 'character', 'place', 'scene', 'secret'];
     return {
+      summary: str(j?.summary),
+      questions: Array.isArray(j?.questions) ? j!.questions.map(str).filter(Boolean) : [],
       items: (Array.isArray(j?.items) ? j!.items : [])
         .filter((x): x is Record<string, unknown> => !!x && typeof x === 'object')
         .map((x) => ({
@@ -360,6 +364,8 @@ export function parse(kind: OutputKind, text: string): Parsed {
           detail: str(x.detail),
           characters: Array.isArray(x.characters) ? x.characters.map(str) : [],
           when: str(x.when),
+          chapter: typeof x.chapter === 'number' ? x.chapter : parseInt(str(x.chapter)) || undefined,
+          have: x.have === true,
         })),
     };
   }

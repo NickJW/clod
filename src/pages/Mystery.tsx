@@ -9,7 +9,7 @@ import { openEditor } from '../ai/session';
 import { TWIST_KINDS } from '../ai/actions';
 import { AskButton, AutoTextarea, ChapterSelect, CharacterChips, CharacterSelect, Empty, Field, Icon, Modal, StatusPicker, Term } from '../components/ui';
 
-type Tab = 'truth' | 'clues' | 'secrets' | 'knows' | 'reader' | 'twists';
+type Tab = 'truth' | 'clues' | 'suspects' | 'connect' | 'secrets' | 'knows' | 'reader' | 'twists';
 
 export function Mystery() {
   const p = useProject();
@@ -17,6 +17,8 @@ export function Mystery() {
   const warnings = localWarnings(p);
   const tabs: [Tab, string][] = [
     ['clues', `Clues & red herrings (${p.clues.length})`],
+    ['suspects', 'Suspects'],
+    ['connect', 'Connect the dots'],
     ['truth', 'The truth'],
     ['secrets', `Secrets (${p.secrets.length})`],
     ['knows', 'Who knows what'],
@@ -55,6 +57,8 @@ export function Mystery() {
         ))}
       </div>
       {tab === 'truth' && <Truth />}
+      {tab === 'suspects' && <Suspects />}
+      {tab === 'connect' && <ConnectDots />}
       {tab === 'clues' && <Clues />}
       {tab === 'secrets' && <Secrets />}
       {tab === 'knows' && <Knows />}
@@ -509,6 +513,126 @@ function Twists() {
           ))}
         </div>
       )}
+    </>
+  );
+}
+
+const SUS_FIELDS: { k: string; label: string }[] = [
+  { k: 'susMotive', label: 'Motive' },
+  { k: 'susMeans', label: 'Means' },
+  { k: 'susOpportunity', label: 'Opportunity' },
+  { k: 'susAlibi', label: 'Alibi' },
+  { k: 'susPointers', label: 'What points to them' },
+  { k: 'susCleared', label: 'Cleared when / how' },
+];
+
+function Suspects() {
+  const p = useProject();
+  const list = p.characters.filter((c) => c.fields.suspect === 'yes');
+  const others = p.characters.filter((c) => c.fields.suspect !== 'yes');
+  const setF = (id: string, k: string, v: string) => {
+    const c = p.characters.find((x) => x.id === id);
+    if (c) patchItem('characters', id, { fields: { ...c.fields, [k]: v } });
+  };
+  return (
+    <>
+      <p className="muted small">
+        The classic way mystery writers keep suspects straight: for each one, <b>motive</b> (why they might have done it), <b>means</b> (could they?), and <b>opportunity</b> (were they there?). A good mystery gives several people all three, and clears them one by one.
+      </p>
+      <div className="row" style={{ margin: '12px 0' }}>
+        <span className="small">Add a suspect:</span>
+        {others.map((c) => (
+          <button key={c.id} className="chip" onClick={() => setF(c.id, 'suspect', 'yes')}>
+            + {c.name}
+          </button>
+        ))}
+        {!p.characters.length && <span className="small muted">Add characters first.</span>}
+      </div>
+      {list.length === 0 ? (
+        <Empty title="No suspects yet">
+          <p>Pick characters above who readers might suspect, including the real culprit.</p>
+        </Empty>
+      ) : (
+        <div className="board">
+          {list.map((c) => {
+            const culprit = p.mystery.culprit.toLowerCase().includes(c.name.split(' ')[0].toLowerCase());
+            const filled = SUS_FIELDS.slice(0, 3).filter((f) => c.fields[f.k]?.trim()).length;
+            return (
+              <div key={c.id} className="card" style={{ padding: '14px 16px' }}>
+                <div className="row">
+                  <div className="avatar" style={{ width: 38, height: 38, fontSize: '1.1rem' }}>{c.name.slice(0, 1)}</div>
+                  <div style={{ flex: 1 }}>
+                    <div className="serif" style={{ fontSize: '1.2rem' }}>{c.name}</div>
+                    <div className="tiny muted">
+                      {filled}/3 of motive, means, opportunity{culprit && ' · the real culprit (only you know)'}
+                    </div>
+                  </div>
+                  <button className="btn ghost small" title="Remove from suspects" onClick={() => setF(c.id, 'suspect', '')}>
+                    <Icon name="x" size={14} />
+                  </button>
+                </div>
+                {SUS_FIELDS.map((f) => (
+                  <label key={f.k} className="field" style={{ marginBottom: 8, marginTop: 8 }}>
+                    <span className="lab small">{f.label}</span>
+                    <AutoTextarea className="input small" value={c.fields[f.k] ?? ''} onChange={(v) => setF(c.id, f.k, v)} minRows={1} />
+                  </label>
+                ))}
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {list.length > 0 && (
+        <div className="row" style={{ marginTop: 16 }}>
+          <span className="spacer" />
+          <AskButton action="ask" label="Are my suspects balanced?" input={{ request: 'Look at my suspects (motive, means, opportunity, alibi, what points to them, when they are cleared). Is suspicion spread well across them? Is anyone too obviously guilty or too obviously innocent? Is the real culprit hidden well but fairly? Where could I add doubt?' }} run />
+        </div>
+      )}
+    </>
+  );
+}
+
+function ConnectDots() {
+  const p = useProject();
+  const [picked, setPicked] = useState<string[]>([]);
+  const groups: { title: string; items: { id: string; label: string; text: string }[] }[] = [
+    { title: 'Characters', items: p.characters.map((c) => ({ id: c.id, label: c.name, text: `Character: ${c.name}${c.role ? ` (${c.role})` : ''}` })) },
+    { title: 'Clues', items: p.clues.filter((c) => c.status !== 'discarded').map((c) => ({ id: c.id, label: c.title, text: `Clue: ${c.title}: ${c.description}` })) },
+    { title: 'Secrets', items: p.secrets.filter((c) => c.status !== 'discarded').map((c) => ({ id: c.id, label: c.title, text: `Secret: ${c.title}: ${c.description}` })) },
+    { title: 'Events', items: p.timeline.filter((c) => c.status !== 'discarded').map((c) => ({ id: c.id, label: c.title, text: `Event: ${c.title}${c.description ? `: ${c.description}` : ''}` })) },
+    { title: 'Places', items: p.places.map((c) => ({ id: c.id, label: c.name, text: `Place: ${c.name}` })) },
+    { title: 'Ideas', items: p.ideas.filter((c) => c.status !== 'discarded').map((c) => ({ id: c.id, label: c.text.slice(0, 50), text: `Idea (${c.status}): ${c.text}` })) },
+  ].filter((g) => g.items.length);
+  const all = groups.flatMap((g) => g.items);
+  const chosen = all.filter((x) => picked.includes(x.id));
+  return (
+    <>
+      <div className="card row">
+        <div style={{ flex: 1 }}>
+          <b>How could these be connected?</b>
+          <div className="small muted">Tick two or more pieces below. Your editor suggests believable ways they could be linked, so earlier moments pay off later.</div>
+        </div>
+        <button className="btn primary" disabled={chosen.length < 2} onClick={() => openEditor({ actionId: 'connect', request: chosen.map((c) => `- ${c.text}`).join('\n') }, true)}>
+          <Icon name="spark" size={16} /> Connect {chosen.length >= 2 ? `these ${chosen.length}` : 'these'}
+        </button>
+        <AskButton action="hiddenConnections" label="Find hidden connections" run />
+      </div>
+      {groups.map((g) => (
+        <div key={g.title} style={{ marginTop: 18 }}>
+          <h3 style={{ fontSize: '1.1rem', marginBottom: 8 }}>{g.title}</h3>
+          <div className="chips">
+            {g.items.map((it) => {
+              const on = picked.includes(it.id);
+              return (
+                <button key={it.id} className={`chip${on ? ' on' : ''}`} onClick={() => setPicked(on ? picked.filter((x) => x !== it.id) : [...picked, it.id])} title={it.text}>
+                  {on ? '✓ ' : ''}
+                  {it.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ))}
     </>
   );
 }

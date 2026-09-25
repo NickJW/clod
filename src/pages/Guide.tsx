@@ -3,7 +3,8 @@ import { useState } from 'react';
 import { GUIDE, guideDone, nextStep, setGuideDone, type GuideStep } from '../story/guide';
 import { setState, useApp, useProject } from '../story/store';
 import { openEditor } from '../ai/session';
-import { Icon } from '../components/ui';
+import { Icon, Modal } from '../components/ui';
+import { LESSONS } from '../story/lessons';
 
 export function startStep(i: number) {
   setState({ guideStep: i, page: GUIDE[i].page, focusMode: false });
@@ -37,7 +38,61 @@ export function Guide() {
           <StepCard key={s.id} s={s} i={i} current={i === next} onChange={() => force((n) => n + 1)} />
         ))}
       </div>
+      <CraftCorner />
     </div>
+  );
+}
+
+function CraftCorner() {
+  const [open, setOpen] = useState<string | null>(null);
+  const p = useProject();
+  return (
+    <>
+      <div className="section-title">
+        <h2>Craft corner</h2>
+        <span className="small muted">Short lessons, a minute or two each</span>
+      </div>
+      <div className="grid-3">
+        {LESSONS.map((l) => (
+          <div key={l.id} className="card click" style={{ padding: '14px 18px' }} onClick={() => setOpen(open === l.id ? null : l.id)}>
+            <div className="tiny muted">{l.minutes} min read</div>
+            <div className="serif" style={{ fontSize: '1.15rem', lineHeight: 1.25 }}>{l.title}</div>
+          </div>
+        ))}
+      </div>
+      {open &&
+        (() => {
+          const l = LESSONS.find((x) => x.id === open)!;
+          return (
+            <Modal onClose={() => setOpen(null)}>
+              <div className="eyebrow">Craft corner</div>
+              <h2>{l.title}</h2>
+              {l.body.map((b, i) => (
+                <p key={i} style={{ lineHeight: 1.65 }}>{b}</p>
+              ))}
+              <div className="row" style={{ marginTop: 16 }}>
+                <span className="spacer" />
+                {l.tryIt && (
+                  <button
+                    className="btn primary"
+                    onClick={() => {
+                      setOpen(null);
+                      const t = l.tryIt!;
+                      if (t.page) setState({ page: t.page, guideStep: null });
+                      if (t.action) {
+                        setState({ page: ['write', 'improve', 'proseReview', 'tension', 'betaReader', 'scene'].includes(t.action) ? 'write' : 'home' });
+                        openEditor({ actionId: t.action, variant: t.variant, chapterId: p.currentChapterId }, ['proseReview', 'fairness', 'betaReader', 'backwards', 'missing'].includes(t.action));
+                      }
+                    }}
+                  >
+                    Try it: {l.tryIt.label}
+                  </button>
+                )}
+              </div>
+            </Modal>
+          );
+        })()}
+    </>
   );
 }
 

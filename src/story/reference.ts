@@ -73,6 +73,18 @@ export const CHARACTER_GROUPS: FieldGroup[] = [
     ],
   },
   {
+    title: 'As a suspect',
+    intro: 'Only if they could be suspected. Readers love weighing motive, means and opportunity.',
+    fields: [
+      { key: 'susMotive', label: 'Motive (why they might have done it)', long: true },
+      { key: 'susMeans', label: 'Means (could they physically have done it?)', long: true },
+      { key: 'susOpportunity', label: 'Opportunity (where were they?)', long: true },
+      { key: 'susAlibi', label: 'Their alibi, and whether it\'s true', long: true },
+      { key: 'susPointers', label: 'What makes the reader suspect them', long: true },
+      { key: 'susCleared', label: 'When and how they\'re cleared (or not)', long: true },
+    ],
+  },
+  {
     title: 'Voice',
     intro: 'How they sound, so every character doesn\'t talk the same way.',
     fields: [
@@ -196,5 +208,27 @@ export function todayWords(p: Project): number {
     b = { date, start: total };
     setPref(key, b);
   }
-  return Math.max(0, total - b.start);
+  const today = Math.max(0, total - b.start);
+  // Keep a small per-day log for the writing streak.
+  const logKey = `wordlog:${p.id}`;
+  const log = getPref<Record<string, number>>(logKey, {});
+  if ((log[date] ?? 0) !== today) setPref(logKey, { ...log, [date]: today });
+  return today;
+}
+
+/** Consecutive days (ending today, or yesterday if nothing yet today) with words written. */
+export function writingStreak(p: Project): number {
+  const log = getPref<Record<string, number>>(`wordlog:${p.id}`, {});
+  let n = 0;
+  const d = new Date();
+  if (!(log[d.toDateString()] > 0)) d.setDate(d.getDate() - 1);
+  while (log[d.toDateString()] > 0) {
+    n++;
+    d.setDate(d.getDate() - 1);
+  }
+  return n;
+}
+
+export function dailyGoal(p: Project): number {
+  return getPref<number>(`goal:${p.id}`, 500);
 }
