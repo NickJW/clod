@@ -10,7 +10,7 @@ function friendly(status: number, body: string): AIError {
   if (/API_KEY_INVALID|API key not valid|PERMISSION_DENIED/i.test(body) || status === 401 || status === 403)
     return new AIError('The Gemini key wasn\'t accepted. Please check it in Settings → AI editor.', 'bad-key');
   if (status === 429)
-    return new AIError('You\'ve reached Gemini\'s free limit for now. Wait a minute and try again. If it keeps happening, the daily free allowance is used up until tomorrow.', 'busy');
+    return new AIError('You\'ve reached Gemini\'s free limit for now. Wait a minute and try again. If it keeps happening, the daily free allowance is used up until tomorrow.', 'quota');
   if (status >= 500) return new AIError('Gemini is busy right now. Please try again in a minute.', 'busy');
   if (status === 404) return new AIError('That Gemini model isn\'t available. Choose another in Settings → AI editor.', 'other');
   if (status === 400 && /too long|token|exceeds/i.test(body)) return new AIError('That request was too long. Try selecting a shorter passage.', 'too-long');
@@ -101,6 +101,8 @@ async function once(req: AIRequest, s: AISettings): Promise<AIResult> {
   return { text, usage, stoppedEarly: finish === 'MAX_TOKENS' };
 }
 
+const version = (id: string) => parseFloat(id.match(/gemini-(\d+(?:\.\d+)?)/)?.[1] ?? '0');
+
 /** Text models available on this key, best first. */
 export async function listGeminiModels(apiKey: string): Promise<string[]> {
   const res = await fetch(`${BASE}/models?pageSize=200`, { headers: { 'x-goog-api-key': apiKey.trim() } });
@@ -109,17 +111,32 @@ export async function listGeminiModels(apiKey: string): Promise<string[]> {
   return (data.models ?? [])
     .filter((m) => m.supportedGenerationMethods?.includes('generateContent'))
     .map((m) => m.name.replace(/^models\//, ''))
-    .filter((id) => /^gemini-/.test(id) && !/embedding|aqa|image|tts|live|audio|vision|robotics|computer|native|exp-\d{4}|-\d{3}$/.test(id))
-    .sort((a, b) => b.localeCompare(a, undefined, { numeric: true }));
+    .filter((id) => /^gemini-/.test(id) && !/embedding|aqa|image|tts|live|audio|vision|robotics|computer|native|omni|transcribe|customtools|exp-\d{4}|-\d{3}$/.test(id))
+    .sort((a, b) => Number(/latest/.test(b)) - Number(/latest/.test(a)) || version(b) - version(a) || a.localeCompare(b));
 }
 
-/** Newest "flash" model for writing help (generous free limits); newest "flash-lite" for small jobs. */
+/**
+ * Default to Google's "latest Flash" alias (always the current free-tier Flash model),
+ * falling back to the newest stable numbered Flash. "Pro" models have no free allowance.
+ */
 export function defaultGeminiModels(ids: string[]): { model: string; fastModel: string } {
   const stable = ids.filter((id) => !/preview|exp/.test(id));
-  const pool = stable.length ? stable : ids;
-  const flash = pool.find((id) => /flash/.test(id) && !/lite/.test(id)) ?? pool[0] ?? '';
-  const lite = pool.find((id) => /flash-lite/.test(id)) ?? flash;
+  const flash =
+    ids.find((id) => id === 'gemini-flash-latest') ??
+    stable.filter((id) => /^gemini-\d[\d.]*-flash$/.test(id)).sort((a, b) => version(b) - version(a))[0] ??
+    stable.find((id) => /flash/.test(id) && !/lite/.test(id)) ??
+    ids[0] ??
+    '';
+  const lite =
+    ids.find((id) => id === 'gemini-flash-lite-latest') ??
+    stable.filter((id) => /^gemini-\d[\d.]*-flash-lite$/.test(id)).sort((a, b) => version(b) - version(a))[0] ??
+    flash;
   return { model: flash, fastModel: lite };
+}
+
+/** Is this model one that has no free allowance (or was picked by an older version of the app)? */
+export function badGeminiDefault(id: string): boolean {
+  return !id || /omni|pro|image|tts|preview/.test(id);
 }
 
 export const geminiProvider: AIProvider = {
@@ -129,14 +146,26 @@ export const geminiProvider: AIProvider = {
   async complete(req, s) {
     if (!s.apiKey.trim()) throw new AIError('The AI editor isn\'t connected yet.', 'no-key');
     if (!s.model) throw new AIError('Choose a Gemini model in Settings → AI editor first.', 'other');
+    // Try the chosen model; if it's overloaded, out of free allowance or unavailable,
+    // fall back to the lighter Flash-Lite model so the author can keep working.
+    const main = badGeminiDefault(s.model) && /omni/.test(s.model) ? 'gemini-flash-latest' : s.model;
+    const lite = s.fastModel && s.fastModel !== main ? s.fastModel : 'gemini-flash-lite-latest';
+    const models = [...new Set(req.fast ? [lite, main] : [main, lite])];
     let lastErr: unknown;
-    for (let attempt = 0; attempt < 2; attempt++) {
-      try {
-        return await once(req, s);
-      } catch (e) {
-        lastErr = e;
-        if (!(e instanceof AIError) || (e.kind !== 'busy' && e.kind !== 'network')) throw e;
-        await new Promise((r) => setTimeout(r, 4000 * (attempt + 1)));
+    for (const m of models) {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          return await once(req, { ...s, model: m, fastModel: m });
+        } catch (e) {
+          lastErr = e;
+          if (!(e instanceof AIError) || e.kind === 'cancelled' || e.kind === 'bad-key' || e.kind === 'too-long') throw e;
+          // A brief overload is worth one retry on the same model; anything else moves on.
+          if ((e.kind === 'busy' || e.kind === 'network') && attempt === 0) {
+            await new Promise((r) => setTimeout(r, 3000));
+            continue;
+          }
+          break;
+        }
       }
     }
     throw lastErr;
