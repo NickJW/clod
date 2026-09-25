@@ -1,0 +1,74 @@
+# Nightjar: a novel studio for dark fiction
+
+A calm, private writing studio for a first-time novelist writing a dark mystery / psychological thriller. **She is the author. The AI is her editor.** It helps her think, plan, check her mystery and polish her prose, but it never writes the book for her and never changes anything without her say-so.
+
+## For the writer: how it works
+
+1. **Open it.** The first time, a few friendly, skippable questions set up your novel. Or you can explore the demo novel, *The Salt House*.
+2. **Home** shows your book, where you left off, and a big **Continue writing** button.
+3. **Write** is a quiet manuscript page. It saves automatically, a moment after you stop typing ("✓ Saved just now" at the bottom).
+4. **Your editor** (the panel on the right) is organised by what you want: *Think, Develop, Scene, Write, Improve, Tension, Mystery, Ask*. Select some text and a small toolbar offers *Improve, Make darker, More suspense, Subtler, Editor's review*.
+5. Every suggestion comes with buttons: **Use this · Save as possibility · Not for me · Ask me more**. Every edit shows exactly what changed, and you **Accept** or **Keep mine**. Earlier versions are always in **History**.
+6. **Talk**: click the microphone anywhere and speak instead of typing (Chrome and Edge).
+7. **I'm stuck** and **What should I work on?** are on the Home page whenever you need them.
+
+### Connecting the AI editor (once, about 2 minutes)
+Settings → *Your AI editor* has step-by-step instructions. You create a key at console.anthropic.com, add some credit, and paste the key in. The app talks to Claude directly from your computer, with no middleman.
+
+### Keeping your work safe
+- Everything is saved in this browser on this computer. There's no account, no server and no tracking.
+- Automatic safety copies are kept while you work (Settings → *Automatic safety copies*).
+- **Save a backup file** regularly (Home reminds you weekly). A backup restores your whole novel on any computer.
+- Export at any time: **Word (.docx, standard manuscript format), PDF, Markdown, plain text**, plus the story bible and notes.
+
+## Running it
+
+It's a static web app, so any static host works.
+
+- **Easiest: GitHub Pages.** In the repository's *Settings → Pages*, set *Source* to **GitHub Actions**. Every push to `main` then publishes the app (see `.github/workflows/deploy.yml`). Open the page in Chrome or Edge and use *Install app* (the icon in the address bar) so it opens like a normal desktop program.
+- **Locally:** `npm install`, then `npm run dev` (development) or `npm run build && npm run preview`.
+
+> Your novel is stored per browser *and* per web address. If you move the app to a new address, export a backup first and restore it there.
+
+## For developers
+
+**Stack:** Vite + React 19 + TypeScript. There's no backend and no state library, and runtime dependencies are minimal (`docx` and `mammoth`, both lazy-loaded for Word import/export). It was chosen for fast startup, simple hosting, and code that's easy to pick up.
+
+```
+src/
+  types/        Data model (Project, Chapter, Character, Clue, Secret, TimelineEvent…) + the canon status
+  storage/      IndexedDB persistence, emergency localStorage copy, automatic snapshots, prefs
+  story/        App store (autosave, undoable deletes), factories/normalisation, demo novel, reference data
+  ai/
+    provider.ts   Model-agnostic AIProvider interface, settings, usage counter
+    anthropic.ts  Claude provider: streaming, retries, friendly errors, prompt caching
+    prompts.ts    Shared craft rules (anti-generic-prose) + specialised editor roles
+    context.ts    Relevance-based context selection (never sends the whole manuscript)
+    actions.ts    Every AI feature: role, scope, output shape, human label
+    session.ts    Editor panel state, runner, tolerant parsing
+  editor/       Editor bridge, word-level diff, local prose checker, speech input
+  services/     Import/export (DOCX manuscript format, PDF via print, Markdown, TXT, backups)
+  components/   UI kit + the editor panel
+  pages/        Home, Write, Story Bible, Characters, Mystery, Timeline, Scenes & Outline, Ending, Research, Settings, Onboarding
+```
+
+### Key design decisions
+- **Canon system.** Every story item has a status: *Decided (canon) · Maybe (possibility) · Working on it (draft) · Set aside (discarded)*. The context builder labels everything, so the model knows fact from idea, and "set aside" ideas are listed so they're never suggested again. AI suggestions are only saved when the author clicks a button.
+- **Cost control.** `ai/context.ts` picks what's relevant: characters mentioned in the passage or present in the chapter's scenes, their relationships and secrets, clues up to this chapter, timeline events involving them, and summaries of recent chapters. Past chapters are represented by short summaries, which the author can generate with the cheaper model. The story context is sent as a cacheable system block. The panel shows *Small / Medium / Larger request* before sending.
+- **Prose quality.** `ai/prompts.ts` holds explicit craft principles (specificity, restraint, subtext, rhythm) and a long list of generic-AI tells to avoid. Style requests are translated into characteristics, never "write like [author]". There's also a free local checker (`editor/proseCheck.ts`) that flags stock phrases, dash overuse, filter words, even rhythm and repeated openings. It's framed as hints, not a score or an "AI detector".
+- **Never lose writing.** The manuscript is saved independently of AI calls (debounced autosave, retry on failure, emergency copy, snapshots, per-chapter version history before every AI change). AI errors are shown in plain English with *Try again*.
+- **Swappable models.** Add a provider by implementing `AIProvider` in `ai/` and registering it in `PROVIDERS`.
+
+### Status
+
+Working now:
+- Phase 1: shell, dashboard, onboarding, chapters, autosave, editor panel, Claude integration, story bible, characters, AI editing
+- Phase 2: mystery board (truth, clues, red herrings, secrets, who-knows-what grid, reader-knowledge timeline, free local warnings), timeline with contradiction flags, scene database, chapter outlining by plain questions, relationships, canon system, AI continuity checks
+- Phase 3: professional editor review, revision modes, twist workshop, pacing/structure analysis, romance tracker, relevance-based context, version compare/restore, ending workspace
+- Phase 4: voice input, research area (known / needs checking / invented), notes, DOCX/TXT/MD import, full export and backup
+
+Planned / not yet built:
+- Italics and other inline formatting in the manuscript (it's plain text today)
+- Offline mode (a service worker), and a native desktop installer (the browser's *Install app* works today)
+- Embedding-based retrieval for very long manuscripts (structured selection plus summaries is used instead)
+- Optional encrypted cloud sync. Deliberately left out for privacy; backups cover this for now.
