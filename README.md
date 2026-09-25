@@ -13,7 +13,7 @@ A calm, private writing studio for a first-time novelist writing a dark mystery 
 7. **I'm stuck** and **What should I work on?** are on the Home page whenever you need them.
 
 ### Connecting the AI editor (once, about 2 minutes)
-Settings → *Your AI editor* has step-by-step instructions. You create a key at console.anthropic.com, add some credit, and paste the key in. The app talks to Claude directly from your computer, with no middleman.
+Settings → *Your AI editor* has step-by-step instructions for Claude (recommended), ChatGPT (OpenAI API key), or copy & paste with a ChatGPT/Claude subscription. With a key, the app talks to the AI directly from your computer, with no middleman.
 
 ### Keeping your work safe
 - Everything is saved in this browser on this computer. There's no account, no server and no tracking.
@@ -67,8 +67,17 @@ Working now:
 - Phase 3: professional editor review, revision modes, twist workshop, pacing/structure analysis, romance tracker, relevance-based context, version compare/restore, ending workspace
 - Phase 4: voice input, research area (known / needs checking / invented), notes, DOCX/TXT/MD import, full export and backup
 
+Added in the second round:
+- **Guide**: a step-by-step writing journey (11 steps) with auto-detected progress, a "next step" card on Home, and a guide bar on each page with *Back to guide / Next step*
+- **AI choice**: Claude (recommended), ChatGPT via an OpenAI API key (models listed live from her account), or **copy & paste** with a ChatGPT/Claude subscription (no key; chat subscriptions can't be connected to other apps directly)
+- Better AI output: drafts match a sample of her own prose; every AI draft gets a free quality check with "Ask for a cleaner version"; chapter summaries refresh automatically with the cheap model
+- "Update my story bible from this chapter": one-click adding of new facts, clues, events and characters
+- Italics (`*like this*`, Ctrl+I) in the editor, reader, PDF and Word export/import; scene breaks
+- Whole-book search, today's word count, a getting-started checklist, in-app dialogs instead of browser pop-ups, a tidier toolbar
+- Automatic hourly backups to a folder she picks once (Chrome/Edge), and offline support
+
 Planned / not yet built:
-- Italics and other inline formatting in the manuscript (it's plain text today)
-- Offline mode (a service worker), and a native desktop installer (the browser's *Install app* works today)
+- Bold/underline and other rich formatting
+- A native desktop installer (the browser's *Install app* works today)
 - Embedding-based retrieval for very long manuscripts (structured selection plus summaries is used instead)
 - Optional encrypted cloud sync. Deliberately left out for privacy; backups cover this for now.

@@ -13,6 +13,8 @@ export interface Focus {
   /** The passage being worked on, used to detect which characters and places are relevant. */
   text?: string;
   characterIds?: string[];
+  /** Include a sample of the author's own prose so drafts match her voice. */
+  voice?: boolean;
 }
 
 const TAG: Record<CanonStatus, string> = {
@@ -290,7 +292,31 @@ export function buildContext(p: Project, focus: Focus): string {
   });
   if (chLines.length) out.push('## Chapters\n' + chLines.join('\n'));
 
+  if (focus.voice) {
+    const sample = voiceSample(p, focus.chapterId);
+    if (sample)
+      out.push(
+        `## A sample of the author's own prose\nMatch its voice, rhythm, diction and level of restraint. Do not copy its content or reuse its images.\n"""${sample}"""`,
+      );
+  }
+
   return out.join('\n\n');
+}
+
+/** ~350 words from the author's longest chapter (preferring one other than the current), cut at paragraph boundaries. */
+function voiceSample(p: Project, currentId?: string): string {
+  const withText = p.chapters.filter((c) => countWords(c.text) > 300);
+  if (!withText.length) return '';
+  const others = withText.filter((c) => c.id !== currentId);
+  const src = (others.length ? others : withText).reduce((a, b) => (countWords(b.text) > countWords(a.text) ? b : a));
+  const paras = src.text.split(/\n\s*\n/).map((x) => x.trim()).filter((x) => x.length > 40);
+  const start = Math.floor(paras.length / 3);
+  let out = '';
+  for (const para of paras.slice(start)) {
+    if ((out + para).length > 2200) break;
+    out += (out ? '\n\n' : '') + para;
+  }
+  return out || paras[0]?.slice(0, 2200) || '';
 }
 
 export function eventWhen(e: { dateKind: string; date: string; time: string; approxLabel: string }): string {

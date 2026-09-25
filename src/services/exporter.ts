@@ -53,9 +53,14 @@ export async function exportManuscriptDocx(p: Project) {
   const font = 'Times New Roman';
   const words = p.chapters.reduce((n, c) => n + countWords(c.text), 0);
   const surname = p.author.trim().split(/\s+/).pop() || 'Author';
+  const runs = (text: string) =>
+    text
+      .split(/(\*[^*\n]+\*)/g)
+      .filter(Boolean)
+      .map((part) => (/^\*[^*]+\*$/.test(part) ? new TextRun({ text: part.slice(1, -1), font, size: 24, italics: true }) : new TextRun({ text: part, font, size: 24 })));
   const body = (text: string, first = false) =>
     new Paragraph({
-      children: [new TextRun({ text, font, size: 24 })],
+      children: runs(text),
       indent: first ? undefined : { firstLine: 720 },
       spacing: { line: 480 },
     });
@@ -84,7 +89,7 @@ export async function exportManuscriptDocx(p: Project) {
       ...Array.from({ length: 6 }, () => new Paragraph({ children: [] })),
       new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: `Chapter ${i + 1}`, font, size: 24 })] }),
       ...(c.title ? [new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 480 }, children: [new TextRun({ text: c.title, font, size: 24 })] })] : []),
-      ...paragraphs(c.text).map((t, k) => (t === '#' || t === '* * *' || t === '***' ? new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: '#', font, size: 24 })] }) : body(t, k === 0))),
+      ...paragraphs(c.text).map((t, k) => (t === '#' || t === '*' || t === '* * *' || t === '***' ? new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: '#', font, size: 24 })] }) : body(t, k === 0))),
       ...(i === p.chapters.length - 1 ? [new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 480 }, children: [new TextRun({ text: 'THE END', font, size: 24 })] })] : []),
     ],
   }));
@@ -116,7 +121,7 @@ ${p.chapters
   .map(
     (c, i) =>
       `<h2>Chapter ${i + 1}</h2>${c.title ? `<h3>${esc(c.title)}</h3>` : '<h3></h3>'}${paragraphs(c.text)
-        .map((t) => (/^(#|\*\s?\*\s?\*)$/.test(t) ? '<p class="sep">*</p>' : `<p>${esc(t)}</p>`))
+        .map((t) => (/^(#|\*|\*\s?\*\s?\*)$/.test(t) ? '<p class="sep">*</p>' : `<p>${esc(t).replace(/\*([^*\n]+)\*/g, '<em>$1</em>')}</p>`))
         .join('')}`,
   )
   .join('')}
@@ -253,8 +258,19 @@ export async function readBackup(file: File): Promise<Project> {
 export async function readManuscriptFile(file: File): Promise<string> {
   if (/\.docx$/i.test(file.name)) {
     const mammoth = await import('mammoth');
-    const res = await mammoth.extractRawText({ arrayBuffer: await file.arrayBuffer() });
-    return res.value;
+    // Convert via HTML so italics survive as *asterisks*.
+    const res = await mammoth.convertToHtml({ arrayBuffer: await file.arrayBuffer() });
+    return res.value
+      .replace(/<(em|i)>([\s\S]*?)<\/\1>/g, (_m, _t, inner: string) => `*${inner.replace(/<[^>]+>/g, '').trim()}*`)
+      .replace(/<\/(p|h\d|li)>|<br\s*\/?>/g, '\n\n')
+      .replace(/<[^>]+>/g, '')
+      .replace(/&nbsp;/g, ' ')
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/\n{3,}/g, '\n\n');
   }
   if (/\.(txt|md|markdown|text)$/i.test(file.name) || file.type.startsWith('text/')) return file.text();
   throw new Error('Please choose a Word (.docx), text (.txt) or Markdown (.md) file.');

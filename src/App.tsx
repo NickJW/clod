@@ -1,9 +1,11 @@
 import { useEffect } from 'react';
 import { go, useApp, type Page } from './story/store';
 import { AIPanel } from './components/AIPanel';
+import { ManualHost } from './components/ManualHost';
 import { ConfirmHost, Icon, Toasts } from './components/ui';
 import { Onboarding } from './pages/Onboarding';
 import { Home } from './pages/Home';
+import { Guide, GuideBanner } from './pages/Guide';
 import { Write } from './pages/Write';
 import { Story } from './pages/Story';
 import { Characters } from './pages/Characters';
@@ -17,6 +19,7 @@ import { manuscriptWords } from './story/reference';
 
 const NAV: { page: Page; label: string; icon: string; hint: string }[] = [
   { page: 'home', label: 'Home', icon: 'home', hint: 'Your novel at a glance' },
+  { page: 'guide', label: 'Guide', icon: 'compass', hint: 'Step-by-step: how to use the studio to write your book' },
   { page: 'write', label: 'Write', icon: 'write', hint: 'Your chapters' },
   { page: 'story', label: 'Story Bible', icon: 'story', hint: 'Premise, tone and decisions' },
   { page: 'characters', label: 'Characters', icon: 'characters', hint: 'People and relationships' },
@@ -78,7 +81,9 @@ export default function App() {
         </nav>
       )}
       <main className="main">
+        {!focus && <GuideBanner />}
         {page === 'home' && <Home />}
+        {page === 'guide' && <Guide />}
         {page === 'write' && <Write />}
         {page === 'story' && <Story />}
         {page === 'characters' && <Characters />}
@@ -92,6 +97,7 @@ export default function App() {
       {!focus && <AIPanel />}
       <Toasts />
       <ConfirmHost />
+      <ManualHost />
     </div>
   );
 }

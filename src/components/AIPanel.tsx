@@ -14,12 +14,14 @@ import {
   run,
   setPanel,
   usePanel,
+  type ExtractItem,
   type Option,
   type Thread,
 } from '../ai/session';
 import { getAISettings } from '../ai/provider';
 import { addItem, getState, go, patchItem, toast, useApp } from '../story/store';
-import { newIdea, newNote } from '../story/factory';
+import { newBelief, newCharacter, newClue, newEvent, newFact, newIdea, newNote, newPlace } from '../story/factory';
+import { checkProse } from '../editor/proseCheck';
 import { applyReplacement, currentSelection, cursorSelection, insertText } from '../editor/bridge';
 import { diffWords } from '../editor/diff';
 import { useSpeech } from '../editor/speech';
@@ -220,6 +222,7 @@ function QuickStart() {
     { id: 'whyNotWorking' },
     { id: 'continuity' },
     { id: 'missing' },
+    { id: 'extract' },
   ];
   return (
     <div>
@@ -298,6 +301,7 @@ function ThreadView({ t }: { t: Thread }) {
           {t.output === 'options' && <OptionsResult t={t} />}
           {t.output === 'findings' && <FindingsResult t={t} />}
           {t.output === 'text' && <TextResult t={t} chapterId={chapterId} />}
+          {t.output === 'extract' && <ExtractResult t={t} chapterId={chapterId} />}
           {t.error && <div className="tiny muted" style={{ marginTop: 6 }}>{t.error}</div>}
 
           {t.followUps.map((f, i) => (
@@ -353,6 +357,82 @@ function ThreadView({ t }: { t: Thread }) {
   );
 }
 
+/** Runs the free local prose check on the AI's own draft, and offers a cleaner retry. */
+const DRAFT_KINDS = ['cliche', 'dash', 'notbut', 'filter', 'emotion', 'ominous', 'asif', 'semi', 'rq'];
+function DraftCheck({ t, text }: { t: Thread; text: string }) {
+  const flags = useMemo(() => checkProse(text).flags.filter((f) => DRAFT_KINDS.includes(f.kind)), [text]);
+  if (!flags.length || t.applied) return null;
+  const avoid = flags.map((f) => `- ${f.title}${f.examples.length ? `, e.g. ${f.examples.slice(0, 3).map((e) => `"${e.text}"`).join('; ')}` : ''}`).join('\n');
+  return (
+    <div className="note-box" style={{ marginTop: 8 }}>
+      <b>Quality check:</b> this draft has some habits of generic prose: {flags.map((f) => f.title.replace(/ \(\d+\)$/, '').toLowerCase()).join(', ')}.
+      <div className="row" style={{ marginTop: 6 }}>
+        <button className="btn small" onClick={() => void run({ ...t.input, avoid })}>
+          Ask for a cleaner version
+        </button>
+      </div>
+    </div>
+  );
+}
+
+const EXTRACT_LABEL: Record<ExtractItem['kind'], string> = {
+  fact: 'Fact',
+  clue: 'Clue',
+  event: 'Timeline event',
+  belief: 'Belief',
+  character: 'New character',
+  place: 'New place',
+};
+
+function ExtractResult({ t, chapterId }: { t: Thread; chapterId: string }) {
+  const items = t.parsed?.items;
+  if (!items) return <Markdown text={t.raw} />;
+  if (!items.length) return <div className="ok-box">Your story bible already covers everything this chapter establishes.</div>;
+  const add = (it: ExtractItem, i: number, status: CanonStatus) => {
+    const p = getState().project!;
+    const ids = it.characters.map((n) => p.characters.find((c) => c.name.toLowerCase().includes(n.toLowerCase().split(' ')[0]))?.id).filter((x): x is string => !!x);
+    const text = it.detail || it.title;
+    if (it.kind === 'fact') addItem('facts', newFact(text, { readerLearnsChapterId: chapterId, status }));
+    if (it.kind === 'clue') addItem('clues', newClue({ title: it.title, description: it.detail, appearsChapterId: chapterId, whoKnowsIds: ids, status }));
+    if (it.kind === 'event') addItem('timeline', newEvent({ title: it.title, description: it.detail, chapterId, characterIds: ids, dateKind: 'approx', approxLabel: it.when, order: Date.now(), status }));
+    if (it.kind === 'belief') addItem('beliefs', newBelief(ids[0] ?? '', { belief: text, sinceChapterId: chapterId, status }));
+    if (it.kind === 'character') addItem('characters', newCharacter(it.title, { fields: { personality: it.detail }, status }));
+    if (it.kind === 'place') addItem('places', newPlace({ name: it.title, description: it.detail }));
+    markHandled(t.id, i, status === 'canon' ? 'Added as decided' : 'Added as a possibility');
+  };
+  return (
+    <>
+      <p className="small muted">Found in {chapterLabel(getState().project!, chapterId)}. Add what's right. Skip anything that isn't.</p>
+      {items.map((it, i) => (
+        <div key={i} className={`opt${t.handled[i] ? ' done' : ''}`}>
+          <div className="row" style={{ gap: 6 }}>
+            <span className="pill neutral">{EXTRACT_LABEL[it.kind]}</span>
+            <b>{it.title}</b>
+          </div>
+          <div className="small" style={{ margin: '4px 0' }}>{it.detail}</div>
+          {t.handled[i] ? (
+            <div className="tiny" style={{ color: 'var(--ok)' }}>✓ {t.handled[i]}</div>
+          ) : (
+            <div className="row" style={{ gap: 6 }}>
+              <button className="btn primary small" onClick={() => add(it, i, 'canon')}>
+                Add to story bible
+              </button>
+              {it.kind !== 'place' && (
+                <button className="btn small" onClick={() => add(it, i, 'possibility')}>
+                  Add as "maybe"
+                </button>
+              )}
+              <button className="btn ghost small" onClick={() => markHandled(t.id, i, 'Skipped')}>
+                Skip
+              </button>
+            </div>
+          )}
+        </div>
+      ))}
+    </>
+  );
+}
+
 function SaveNote({ title, body }: { title: string; body: string }) {
   const [done, setDone] = useState(false);
   return (
@@ -384,6 +464,7 @@ function ProseResult({ t, chapterId }: { t: Thread; chapterId: string }) {
   return (
     <>
       <div className="prose-out">{prose}</div>
+      <DraftCheck t={t} text={prose} />
       {t.parsed?.editorNote && <div className="note-box" style={{ marginTop: 8 }}>{t.parsed.editorNote}</div>}
       {t.applied ? (
         <div className="ok-box" style={{ marginTop: 8 }}>{t.applied}</div>
@@ -444,6 +525,7 @@ function RevisionResult({ t }: { t: Thread }) {
             ? revised
             : parts.map((x, i) => (x.type === 'same' ? <span key={i}>{x.text}</span> : x.type === 'add' ? <ins key={i}>{x.text}</ins> : <del key={i}>{x.text}</del>))}
       </div>
+      <DraftCheck t={t} text={revised} />
       {t.parsed?.notes && (
         <div style={{ marginTop: 10 }}>
           <div className="small" style={{ fontWeight: 600 }}>What changed and why</div>

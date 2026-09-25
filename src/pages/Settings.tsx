@@ -1,9 +1,11 @@
 // Settings: connect the AI editor, appearance, export/import, backups, privacy.
 import { useEffect, useState } from 'react';
-import { PROVIDERS, getAISettings, getProvider, getUsage, resetUsage, saveAISettings } from '../ai/provider';
+import { getAISettings, getProvider, getUsage, resetUsage, saveAISettings } from '../ai/provider';
+import { defaultOpenAIModels, listOpenAIModels } from '../ai/openai';
 import { AIError } from '../ai/errors';
 import { getPref, listSnapshots, setPref, type Snapshot } from '../storage/db';
-import { addItem, closeProject, createProject, toast, updateProject, useApp, useProject } from '../story/store';
+import { addItem, closeProject, createProject, setState, toast, updateProject, useApp, useProject } from '../story/store';
+import { backupToFolder, chooseFolder, folderSupported, getFolder } from '../services/backupFolder';
 import { newChapter, normalizeProject, uid } from '../story/factory';
 import { demoProject } from '../story/seed';
 import { timeAgo } from '../story/reference';
@@ -22,6 +24,52 @@ import {
   storyBibleMarkdown,
 } from '../services/exporter';
 import { Icon, confirmDialog } from '../components/ui';
+
+function FolderBackup() {
+  const p = useProject();
+  const [folder, setFolder] = useState<string | null>(null);
+  useEffect(() => {
+    getFolder().then((h) => setFolder(h?.name ?? ''));
+  }, []);
+  if (!folderSupported)
+    return <p className="small muted" style={{ marginTop: 16 }}>Automatic folder backups work in Chrome and Edge. In this browser, save backup files regularly.</p>;
+  const now = async () => {
+    const r = await backupToFolder(p, true);
+    if (r === 'saved') {
+      updateProject({ lastBackupAt: Date.now() });
+      setState({ folderNeedsPermission: false });
+      toast('Backup saved to your folder.');
+    } else toast('Couldn\'t save there. Try choosing the folder again.', 'error');
+  };
+  return (
+    <>
+      <h3 style={{ margin: '16px 0 8px' }}>Automatic backup folder (recommended)</h3>
+      <p className="small muted" style={{ marginTop: 0 }}>
+        Pick a folder once, like Documents, or a Dropbox, OneDrive or Google Drive folder for an off-computer copy. While you write, Nightjar saves a dated backup there about once an hour.
+      </p>
+      <div className="row">
+        {folder ? <span className="pill canon">Backing up to “{folder}”</span> : <span className="pill warn">Not set up</span>}
+        <button
+          className="btn"
+          onClick={async () => {
+            const h = await chooseFolder();
+            if (h) {
+              setFolder(h.name);
+              await now();
+            }
+          }}
+        >
+          {folder ? 'Change folder' : 'Choose a folder'}
+        </button>
+        {folder && (
+          <button className="btn" onClick={now}>
+            Back up now
+          </button>
+        )}
+      </div>
+    </>
+  );
+}
 
 export function applyAppearance() {
   const root = document.documentElement;
@@ -56,17 +104,57 @@ export function Settings() {
   );
 }
 
+const SETUP: Record<string, { site: string; url: string; steps: string[]; placeholder: string; note?: string }> = {
+  anthropic: {
+    site: 'console.anthropic.com',
+    url: 'https://console.anthropic.com/settings/keys',
+    placeholder: 'sk-ant-…',
+    steps: ['Add some credit under Billing. A small amount lasts a long time for writing help.', 'Under "API keys", click "Create key", name it "Nightjar", and copy it.', 'Paste it in the box below. That\'s it.'],
+  },
+  openai: {
+    site: 'platform.openai.com',
+    url: 'https://platform.openai.com/api-keys',
+    placeholder: 'sk-…',
+    steps: ['Add some credit under Settings → Billing.', 'Under "API keys", click "Create new secret key", name it "Nightjar", and copy it.', 'Paste it in the box below, then choose a model.'],
+    note: 'Important: a ChatGPT Plus or Pro subscription does not include this. OpenAI bills API use separately, from platform.openai.com.',
+  },
+};
+
 function AISection() {
   const [s, setS] = useState(getAISettings());
   const [showKey, setShowKey] = useState(false);
   const [test, setTest] = useState<'' | 'testing' | 'ok' | string>('');
+  const [models, setModels] = useState<string[]>([]);
+  const [modelErr, setModelErr] = useState('');
   const usage = getUsage();
   const provider = getProvider(s.providerId);
+  const setup = SETUP[s.providerId] ?? SETUP.anthropic;
   const save = (patch: Partial<typeof s>) => {
-    const next = { ...s, ...patch };
-    setS(next);
-    saveAISettings(next);
+    saveAISettings(patch);
+    setS(getAISettings());
+    if (patch.apiKey !== undefined || patch.providerId) setTest('');
   };
+
+  // ChatGPT: list the models available on her key.
+  useEffect(() => {
+    setModels([]);
+    setModelErr('');
+    if (s.providerId !== 'openai' || s.apiKey.length < 20) return;
+    const key = s.apiKey;
+    const t = setTimeout(() => {
+      listOpenAIModels(key)
+        .then((ids) => {
+          setModels(ids);
+          const cur = getAISettings();
+          if (ids.length && (!cur.model || !ids.includes(cur.model))) {
+            saveAISettings(defaultOpenAIModels(ids));
+            setS(getAISettings());
+          }
+        })
+        .catch((e) => setModelErr(e instanceof AIError ? e.message : 'Couldn\'t load the model list.'));
+    }, 600);
+    return () => clearTimeout(t);
+  }, [s.providerId, s.apiKey]);
 
   const runTest = async () => {
     setTest('testing');
@@ -82,29 +170,51 @@ function AISection() {
     <div className="card" id="ai">
       <h2>Your AI editor</h2>
       <p className="muted">
-        Nightjar uses Claude as your editor. It connects directly from this computer to Anthropic with your own key. There's no middleman, and you pay Anthropic only for what you use.
+        Your editor connects directly from this computer to the AI company you choose, with your own key. There's no middleman, and you pay only for what you use.
       </p>
-      {!s.apiKey && (
+      <label className="field" style={{ maxWidth: 520 }}>
+        <span className="lab">Which AI?</span>
+        <select className="input" value={s.providerId} onChange={(e) => save({ providerId: e.target.value })}>
+          <option value="anthropic">Claude (Anthropic): recommended, and what the editor was tuned with</option>
+          <option value="openai">ChatGPT (OpenAI API key)</option>
+          <option value="manual">My ChatGPT or Claude subscription (copy &amp; paste, no key)</option>
+        </select>
+      </label>
+      {s.providerId === 'manual' && (
+        <div className="note-box" style={{ margin: '12px 0 18px' }}>
+          <b>Using your ChatGPT or Claude subscription</b>
+          <p style={{ margin: '6px 0' }}>
+            Chat subscriptions (ChatGPT Plus, Claude Pro) can't be connected to other apps directly, so this works by copy &amp; paste. When you ask your editor for something, a small window opens: copy the prepared request, paste it into ChatGPT or Claude, then paste the answer back. You keep all the same buttons: Accept, Use this, and so on.
+          </p>
+          <p style={{ margin: 0 }} className="small">
+            It costs nothing beyond your subscription, but it takes a few more clicks, and automatic chapter summaries are switched off. For a smoother experience, connect a Claude or OpenAI key instead.
+          </p>
+        </div>
+      )}
+      {s.providerId !== 'manual' && !s.apiKey && (
         <div className="note-box" style={{ margin: '12px 0 18px' }}>
           <b>How to connect (about 2 minutes, one time only):</b>
           <ol style={{ margin: '8px 0 0', paddingLeft: 20, lineHeight: 1.7 }}>
             <li>
               Go to{' '}
-              <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noreferrer">
-                console.anthropic.com
+              <a href={setup.url} target="_blank" rel="noreferrer">
+                {setup.site}
               </a>{' '}
               and sign up or sign in.
             </li>
-            <li>Add some credit under Billing. A small amount lasts a long time for writing help.</li>
-            <li>Under "API keys", click "Create key", give it a name like "Nightjar", and copy it.</li>
-            <li>Paste it in the box below. That's it.</li>
+            {setup.steps.map((x) => (
+              <li key={x}>{x}</li>
+            ))}
           </ol>
+          {setup.note && <p style={{ margin: '8px 0 0' }}><b>{setup.note}</b></p>}
         </div>
       )}
+      {s.providerId !== 'manual' && (
+      <>
       <label className="field">
-        <span className="lab">Your key</span>
+        <span className="lab">Your {provider.name} key</span>
         <div className="row" style={{ flexWrap: 'nowrap' }}>
-          <input className="input" type={showKey ? 'text' : 'password'} value={s.apiKey} onChange={(e) => save({ apiKey: e.target.value.trim() })} placeholder="sk-ant-…" autoComplete="off" spellCheck={false} />
+          <input className="input" type={showKey ? 'text' : 'password'} value={s.apiKey} onChange={(e) => save({ apiKey: e.target.value.trim() })} placeholder={setup.placeholder} autoComplete="off" spellCheck={false} />
           <button className="btn small" onClick={() => setShowKey(!showKey)}>
             {showKey ? 'Hide' : 'Show'}
           </button>
@@ -112,7 +222,7 @@ function AISection() {
             {test === 'testing' ? 'Checking…' : 'Test connection'}
           </button>
         </div>
-        <span className="hint" style={{ marginTop: 6 }}>Stored only in this browser on this computer. Never included in backups or exports.</span>
+        <span className="hint" style={{ marginTop: 6 }}>Stored only in this browser on this computer. Never included in backups or exports. Each AI keeps its own key, so you can switch back and forth.</span>
       </label>
       {test === 'ok' && <div className="ok-box">✓ Connected. Your editor is ready.</div>}
       {test && test !== 'ok' && test !== 'testing' && <div className="err-box">{test}</div>}
@@ -120,14 +230,31 @@ function AISection() {
       <div className="grid-2" style={{ marginTop: 18 }}>
         <label className="field">
           <span className="lab">Model</span>
-          <select className="input" value={s.model} onChange={(e) => save({ model: e.target.value })}>
-            {PROVIDERS.flatMap((pr) => pr.models).map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.label}: {m.note}
-              </option>
-            ))}
-          </select>
-          <span className="hint" style={{ marginTop: 6 }}>Chapter summaries always use the faster, cheaper model.</span>
+          {s.providerId === 'openai' ? (
+            models.length ? (
+              <select className="input" value={s.model} onChange={(e) => save({ model: e.target.value })}>
+                {models.map((m) => (
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input className="input" value={s.model} onChange={(e) => save({ model: e.target.value.trim() })} placeholder={s.apiKey ? 'Loading your models…' : 'Paste your key first'} />
+            )
+          ) : (
+            <select className="input" value={s.model} onChange={(e) => save({ model: e.target.value })}>
+              {provider.models.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.label}: {m.note}
+                </option>
+              ))}
+            </select>
+          )}
+          {modelErr && <span className="hint" style={{ color: 'var(--danger)' }}>{modelErr}</span>}
+          <span className="hint" style={{ marginTop: 6 }}>
+            {s.providerId === 'openai' ? `Small jobs like chapter summaries use ${s.fastModel || 'a smaller model'}.` : 'Chapter summaries always use the faster, cheaper model.'}
+          </span>
         </label>
         <label className="field">
           <span className="lab">Creativity: {s.creativity < 0.4 ? 'careful' : s.creativity > 0.8 ? 'adventurous' : 'balanced'}</span>
@@ -135,9 +262,18 @@ function AISection() {
           <span className="hint">Affects brainstorming and prose. Checks and analysis always stay careful.</span>
         </label>
       </div>
+      </>
+      )}
+      <label className="row" style={{ cursor: 'pointer', marginBottom: 12 }}>
+        <input type="checkbox" defaultChecked={getPref('autoSummary', true)} onChange={(e) => setPref('autoSummary', e.target.checked)} />
+        <span>
+          <b>Keep chapter summaries up to date automatically</b>
+          <span className="muted small"> · when you leave a chapter that changed a lot, a short summary is refreshed with the inexpensive model, so your editor remembers earlier chapters without re-reading them (saves money)</span>
+        </span>
+      </label>
       <div className="small muted">
         Used on this computer since {new Date(usage.since).toLocaleDateString()}: {usage.requests} requests, about {(usage.inputTokens + usage.outputTokens).toLocaleString()} tokens.{' '}
-        For exact costs, see your usage at console.anthropic.com.{' '}
+        For exact costs, see your account's usage page (console.anthropic.com or platform.openai.com).{' '}
         <button className="btn ghost small" onClick={() => (resetUsage(), toast('Counter reset.'))}>
           Reset counter
         </button>
@@ -248,6 +384,7 @@ function ExportSection() {
           Notes & research (Markdown)
         </button>
       </div>
+      <FolderBackup />
       <h3 style={{ margin: '16px 0 8px' }}>Complete backup</h3>
       <div className="row">
         <button className="btn primary" onClick={() => (backupProject(p), mark())}>
@@ -396,7 +533,7 @@ function Privacy() {
       <ul style={{ paddingLeft: 20, lineHeight: 1.7 }}>
         <li>Your novel is stored only in this browser, on this computer. There is no Nightjar account or server, and no analytics or tracking.</li>
         <li>
-          When you ask your editor for help, the relevant parts of your story (not the whole manuscript) are sent securely to Anthropic to get a response. Anthropic's commercial terms say API data isn't used to train their models by default.
+          When you ask your editor for help, the relevant parts of your story (not the whole manuscript) are sent securely to the AI company you chose (Anthropic or OpenAI) to get a response. Both companies' API terms say API data isn't used to train their models by default.
         </li>
         <li>Nothing else leaves your computer unless you export or back up a file yourself.</li>
         <li>Because your work lives in this browser, clearing your browsing data would erase it. Keep regular backup files.</li>

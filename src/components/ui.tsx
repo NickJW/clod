@@ -247,42 +247,111 @@ export function Modal({ children, onClose, wide }: { children: ReactNode; onClos
   );
 }
 
-type ConfirmReq = { title: string; body: string; ok: string; danger?: boolean; resolve: (v: boolean) => void };
+type ConfirmReq = {
+  title: string;
+  body: string;
+  ok: string;
+  danger?: boolean;
+  /** When set, the dialog asks for text. */
+  input?: { value: string; placeholder: string; long?: boolean };
+  resolve: (v: boolean | string | null) => void;
+};
 let confirmSetter: ((r: ConfirmReq | null) => void) | null = null;
 
 export function confirmDialog(title: string, body: string, ok = 'Yes', danger = false): Promise<boolean> {
   return new Promise((resolve) => {
     if (!confirmSetter) return resolve(window.confirm(`${title}\n\n${body}`));
-    confirmSetter({ title, body, ok, danger, resolve });
+    confirmSetter({ title, body, ok, danger, resolve: (v) => resolve(v === true) });
+  });
+}
+
+/** Ask for a line (or paragraph) of text. Resolves null if cancelled. */
+export function promptDialog(title: string, body = '', opts: { value?: string; placeholder?: string; ok?: string; long?: boolean } = {}): Promise<string | null> {
+  return new Promise((resolve) => {
+    if (!confirmSetter) return resolve(window.prompt(title, opts.value ?? ''));
+    confirmSetter({
+      title,
+      body,
+      ok: opts.ok ?? 'Save',
+      input: { value: opts.value ?? '', placeholder: opts.placeholder ?? '', long: opts.long },
+      resolve: (v) => resolve(typeof v === 'string' ? v : null),
+    });
   });
 }
 
 export function ConfirmHost() {
   const [req, setReq] = useState<ConfirmReq | null>(null);
+  const [text, setText] = useState('');
   useEffect(() => {
-    confirmSetter = setReq;
+    confirmSetter = (r) => {
+      setText(r?.input?.value ?? '');
+      setReq(r);
+    };
     return () => {
       confirmSetter = null;
     };
   }, []);
   if (!req) return null;
   const done = (v: boolean) => {
-    req.resolve(v);
+    req.resolve(req.input ? (v ? text : null) : v);
     setReq(null);
   };
   return (
     <Modal onClose={() => done(false)}>
       <h2>{req.title}</h2>
-      <p className="muted">{req.body}</p>
+      {req.body && <p className="muted">{req.body}</p>}
+      {req.input &&
+        (req.input.long ? (
+          <textarea className="input" autoFocus rows={4} value={text} placeholder={req.input.placeholder} onChange={(e) => setText(e.target.value)} style={{ marginTop: 10 }} />
+        ) : (
+          <input className="input" autoFocus value={text} placeholder={req.input.placeholder} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && done(true)} style={{ marginTop: 10 }} />
+        ))}
       <div className="row end" style={{ marginTop: 20 }}>
-        <button className="btn" onClick={() => done(false)} autoFocus>
+        <button className="btn" onClick={() => done(false)} autoFocus={!req.input}>
           Cancel
         </button>
-        <button className={`btn ${req.danger ? 'danger' : 'primary'}`} onClick={() => done(true)}>
+        <button className={`btn ${req.danger ? 'danger' : 'primary'}`} onClick={() => done(true)} disabled={!!req.input && !text.trim()}>
           {req.ok}
         </button>
       </div>
     </Modal>
+  );
+}
+
+/** A small dropdown menu for less-used actions. */
+export function Menu({ label, items }: { label: ReactNode; items: { label: string; onClick: () => void; hint?: string }[] }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && setOpen(false);
+    window.addEventListener('mousedown', close);
+    return () => window.removeEventListener('mousedown', close);
+  }, [open]);
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <button className={`btn ghost small${open ? ' on' : ''}`} onClick={() => setOpen(!open)} aria-expanded={open}>
+        {label}
+      </button>
+      {open && (
+        <div className="menu" role="menu">
+          {items.map((it) => (
+            <button
+              key={it.label}
+              role="menuitem"
+              title={it.hint}
+              onClick={() => {
+                setOpen(false);
+                it.onClick();
+              }}
+            >
+              {it.label}
+              {it.hint && <span className="tiny muted">{it.hint}</span>}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 

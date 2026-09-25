@@ -1,6 +1,6 @@
 // First launch: a friendly, skippable conversation that seeds the story bible.
 import { useState } from 'react';
-import { createProject, useApp, openProject, deleteProject } from '../story/store';
+import { createProject, useApp, openProject, deleteProject, setState } from '../story/store';
 import { newCharacter, newIdea, newProject } from '../story/factory';
 import { demoProject } from '../story/seed';
 import { AutoTextarea, Icon, confirmDialog } from '../components/ui';
@@ -137,6 +137,7 @@ export function Onboarding() {
     }
     if (a.mystery.trim()) p.ideas.push(newIdea(a.mystery.trim(), { status: 'draft', category: 'mystery' }));
     await createProject(p);
+    setState({ page: 'guide' });
   };
 
   const cur = steps[step];

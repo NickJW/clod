@@ -3,6 +3,7 @@
 import type { CanonStatus, Chapter, Project } from '../types';
 import { getState, patchItem } from './store';
 import { uid } from './factory';
+import { getPref, setPref } from '../storage/db';
 
 export interface FieldDef {
   key: string;
@@ -183,4 +184,17 @@ export function saveChapterVersion(chapterId: string, label: string): void {
   if (ch.versions[0]?.text === ch.text) return;
   const versions = [{ id: uid(), at: Date.now(), label, text: ch.text }, ...ch.versions].slice(0, 40);
   patchItem('chapters', chapterId, { versions } as Partial<Chapter>);
+}
+
+/** Words added to the book today (baseline taken the first time the book is seen each day). */
+export function todayWords(p: Project): number {
+  const key = `today:${p.id}`;
+  const date = new Date().toDateString();
+  const total = manuscriptWords(p);
+  let b = getPref<{ date: string; start: number } | null>(key, null);
+  if (!b || b.date !== date) {
+    b = { date, start: total };
+    setPref(key, b);
+  }
+  return Math.max(0, total - b.start);
 }

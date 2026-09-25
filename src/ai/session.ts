@@ -5,7 +5,8 @@ import { ACTIONS, type ActionId, type Built, type JobInput, type OutputKind } fr
 import { buildContext } from './context';
 import { systemPrompt } from './prompts';
 import { AIError, estimateTokens, getAISettings, getProvider, recordUsage, type AIMessage, type AIUsage } from './provider';
-import { getState } from '../story/store';
+import { getState, patchItem } from '../story/store';
+import { countWords } from '../story/reference';
 import { getPref } from '../storage/db';
 import { flushEditor } from '../editor/bridge';
 
@@ -22,7 +23,16 @@ export interface Finding {
   suggestion?: string;
 }
 
+export interface ExtractItem {
+  kind: 'fact' | 'clue' | 'event' | 'belief' | 'character' | 'place';
+  title: string;
+  detail: string;
+  characters: string[];
+  when: string;
+}
+
 export interface Parsed {
+  items?: ExtractItem[];
   options?: Option[];
   questions?: string[];
   note?: string;
@@ -127,7 +137,9 @@ function prepare(input: JobInput): { built: Built; system: string; context: stri
     chapterId: input.selection?.chapterId ?? input.chapterId ?? p.currentChapterId,
     text: built.focusText ?? input.selection?.text ?? input.request,
     characterIds: built.characterIds ?? (input.characterId ? [input.characterId] : []),
+    voice: built.role === 'prose' && (built.output === 'prose' || built.output === 'revision'),
   });
+  if (input.avoid) built.user += `\n\nIMPORTANT: a previous draft of this used these weak patterns. Avoid them completely this time:\n${input.avoid}`;
   return { built, system, context };
 }
 
@@ -226,6 +238,31 @@ export async function runQuiet(input: JobInput): Promise<string> {
   return res.text.trim();
 }
 
+/**
+ * Keep chapter summaries fresh in the background (cheap model), so the editor
+ * remembers earlier chapters without re-reading them. Only runs if enabled,
+ * connected, and the chapter changed substantially since its last summary.
+ */
+const summarizing = new Set<string>();
+export async function maybeSummarize(chapterId: string, force = false): Promise<boolean> {
+  const p = getState().project;
+  const ch = p?.chapters.find((c) => c.id === chapterId);
+  if (!p || !ch || summarizing.has(chapterId) || !getAISettings().apiKey) return false;
+  if (!force && (!getPref('autoSummary', true) || getAISettings().providerId === 'manual')) return false;
+  const words = countWords(ch.text);
+  if (words < 250 || (!force && ch.summary && Math.abs(words - ch.summaryWordCount) < 300)) return false;
+  summarizing.add(chapterId);
+  try {
+    const summary = await runQuiet({ actionId: 'summarize', chapterId });
+    patchItem('chapters', chapterId, { summary, summaryWordCount: words });
+    return true;
+  } catch {
+    return false;
+  } finally {
+    summarizing.delete(chapterId);
+  }
+}
+
 export async function followUp(threadId: string, question: string): Promise<void> {
   const t = state.threads.find((x) => x.id === threadId);
   if (!t || !question.trim()) return;
@@ -310,6 +347,21 @@ export function parse(kind: OutputKind, text: string): Parsed {
   if (kind === 'prose') {
     const [prose, note] = text.split(/\n?EDITOR'S NOTE:/);
     return { prose: prose.trim(), editorNote: note?.trim() };
+  }
+  if (kind === 'extract') {
+    const j = extractJson(text) as { items?: unknown[] } | null;
+    const kinds = ['fact', 'clue', 'event', 'belief', 'character', 'place'];
+    return {
+      items: (Array.isArray(j?.items) ? j!.items : [])
+        .filter((x): x is Record<string, unknown> => !!x && typeof x === 'object')
+        .map((x) => ({
+          kind: (kinds.includes(str(x.kind)) ? str(x.kind) : 'fact') as ExtractItem['kind'],
+          title: str(x.title),
+          detail: str(x.detail),
+          characters: Array.isArray(x.characters) ? x.characters.map(str) : [],
+          when: str(x.when),
+        })),
+    };
   }
   if (kind === 'options' || kind === 'findings') {
     const j = extractJson(text) as Record<string, unknown> | null;

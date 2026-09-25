@@ -7,7 +7,7 @@ import type { Scope } from './context';
 import { characterName, chapterLabel } from '../story/reference';
 import { nearbyText } from './context';
 
-export type OutputKind = 'prose' | 'revision' | 'options' | 'findings' | 'text';
+export type OutputKind = 'prose' | 'revision' | 'options' | 'findings' | 'text' | 'extract';
 
 export interface Selection {
   chapterId: string;
@@ -24,6 +24,8 @@ export interface JobInput {
   characterId?: string;
   /** Revision level, twist category, stuck-type, etc. */
   variant?: string;
+  /** Weak patterns found in a previous draft, to steer the retry away from them. */
+  avoid?: string;
 }
 
 export interface Built {
@@ -64,6 +66,7 @@ export type ActionId =
   | 'summarize'
   | 'research'
   | 'shape'
+  | 'extract'
   | 'ask';
 
 export interface ActionDef {
@@ -552,6 +555,23 @@ export const ACTIONS: Record<ActionId, ActionDef> = {
         focusText: i.request,
         user: `The author spoke or typed her thoughts freely:\n"""${i.request ?? ''}"""\n\nTurn this into ${how[target] ?? how.notes}. Keep her ideas as hers. Don't add new plot, and mark any gap as a question. ${target === 'prose' ? FORMAT.prose : 'No preamble.'}`,
         craft: target === 'prose',
+      };
+    },
+  },
+  extract: {
+    id: 'extract',
+    label: 'Update my story bible from this chapter',
+    blurb: 'Reads the chapter and lists new facts, clues, events and characters it establishes, so you can add them to your story bible with one click.',
+    build: (p, i) => {
+      const ch = p.chapters.find((c) => c.id === (i.chapterId ?? p.currentChapterId));
+      return {
+        role: 'continuity',
+        scope: 'mystery',
+        output: 'extract',
+        maxTokens: 2500,
+        focusText: ch?.text,
+        user: `Read ${ch ? chapterLabel(p, ch.id) : 'this chapter'} and list what it ESTABLISHES that is NOT already recorded in the story bible: facts, clues (or red herrings), events for the timeline, what a character now believes, new characters, new places. Only include things actually on the page. Don't add interpretation or suggestions. Skip anything already recorded, even if worded differently. At most 12 items, most important first.\n\nRespond ONLY with JSON in a \`\`\`json code block: {"items": [{"kind": "fact" | "clue" | "event" | "belief" | "character" | "place", "title": "short name", "detail": "one or two sentences, quoting the text where useful", "characters": ["names involved"], "when": "time/date if stated"}]}\n\nCHAPTER TEXT:\n"""${ch?.text ?? ''}"""`,
+        craft: false,
       };
     },
   },

@@ -3,9 +3,10 @@
 import type { Project, ProjectMeta } from '../types';
 
 const DB_NAME = 'nightjar';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const PROJECTS = 'projects';
 const SNAPSHOTS = 'snapshots';
+const KV = 'kv';
 const MAX_SNAPSHOTS = 12;
 
 export interface Snapshot {
@@ -28,6 +29,7 @@ function open(): Promise<IDBDatabase> {
         const s = db.createObjectStore(SNAPSHOTS, { keyPath: 'key' });
         s.createIndex('projectId', 'projectId');
       }
+      if (!db.objectStoreNames.contains(KV)) db.createObjectStore(KV);
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => {
@@ -133,4 +135,13 @@ export function setPref<T>(key: string, value: T): void {
   } catch {
     /* ignore */
   }
+}
+
+/** Small values that can't live in localStorage (e.g. a folder handle). */
+export function kvGet<T>(key: string): Promise<T | undefined> {
+  return tx<T | undefined>(KV, 'readonly', (s) => s.get(key));
+}
+
+export function kvSet(key: string, value: unknown): Promise<unknown> {
+  return tx(KV, 'readwrite', (s) => s.put(value, key));
 }

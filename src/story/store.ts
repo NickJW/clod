@@ -4,11 +4,13 @@ import { useSyncExternalStore } from 'react';
 import type { CollectionKey, ItemOf, Project, ProjectMeta } from '../types';
 import * as db from '../storage/db';
 import { normalizeProject, uid } from './factory';
+import { backupToFolder } from '../services/backupFolder';
 
 export type SaveState = 'saved' | 'saving' | 'error' | 'idle';
 
 export type Page =
   | 'home'
+  | 'guide'
   | 'write'
   | 'story'
   | 'characters'
@@ -37,6 +39,10 @@ export interface AppState {
   saveError: string;
   toasts: Toast[];
   focusMode: boolean;
+  /** A backup folder is set up but the browser needs one click to allow writing again. */
+  folderNeedsPermission: boolean;
+  /** The guide step being followed, if any (shows the guide bar). */
+  guideStep: number | null;
 }
 
 let state: AppState = {
@@ -49,6 +55,8 @@ let state: AppState = {
   saveError: '',
   toasts: [],
   focusMode: false,
+  folderNeedsPermission: false,
+  guideStep: null,
 };
 
 const listeners = new Set<() => void>();
@@ -79,6 +87,7 @@ export function useProject(): Project {
 // ---------- Saving ----------
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
+let lastFolderTry = 0;
 
 function scheduleSave() {
   if (saveTimer) clearTimeout(saveTimer);
@@ -97,6 +106,14 @@ export async function flushSave(): Promise<void> {
     await db.saveProject(p);
     setState({ saveState: 'saved', lastSavedAt: Date.now(), saveError: '' });
     db.addSnapshot(p).catch(() => undefined);
+    // Quiet hourly backup to the author's chosen folder, if she set one up and the browser still allows it.
+    if (Date.now() - lastFolderTry > 3600e3) {
+      lastFolderTry = Date.now();
+      backupToFolder(p, false).then((r) => {
+        if (r === 'saved') updateProject({ lastBackupAt: Date.now() });
+        setState({ folderNeedsPermission: r === 'needs-permission' });
+      });
+    }
   } catch (e) {
     setState({ saveState: 'error', saveError: e instanceof Error ? e.message : String(e) });
     // retry in a few seconds; the text is still safe in memory and in the emergency copy
@@ -225,7 +242,7 @@ export function go(page: Page): void {
 export function toast(message: string, tone: Toast['tone'] = 'info', actionLabel?: string, action?: () => void) {
   const t: Toast = { id: uid(), message, tone, actionLabel, action };
   setState({ toasts: [...state.toasts, t] });
-  setTimeout(() => dismissToast(t.id), action ? 9000 : 4500);
+  setTimeout(() => dismissToast(t.id), action ? 14000 : tone === 'error' ? 10000 : 6500);
 }
 
 export function dismissToast(id: string) {

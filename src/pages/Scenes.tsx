@@ -1,7 +1,9 @@
 // Chapter planning in plain questions, and a record for every scene.
 import { useState } from 'react';
 import type { Chapter, ChapterOutline, Scene } from '../types';
-import { addItem, patchItem, removeItem, setState, updateProject, useProject } from '../story/store';
+import { addItem, patchItem, removeItem, setState, toast, updateProject, useProject } from '../story/store';
+import { maybeSummarize } from '../ai/session';
+import { getAISettings } from '../ai/provider';
 import { newScene } from '../story/factory';
 import { characterName, countWords } from '../story/reference';
 import { AskButton, AutoTextarea, CharacterChips, CharacterSelect, Field, Icon, Modal, Term } from '../components/ui';
@@ -17,6 +19,32 @@ const QUESTIONS: { k: keyof ChapterOutline; q: string }[] = [
   { k: 'feel', q: 'What should the reader feel?' },
   { k: 'unanswered', q: 'What should stay unanswered?' },
 ];
+
+function UpdateSummaries() {
+  const p = useProject();
+  const [busy, setBusy] = useState('');
+  const stale = p.chapters.filter((c) => countWords(c.text) >= 250 && (!c.summary || Math.abs(countWords(c.text) - c.summaryWordCount) >= 300));
+  if (!stale.length) return null;
+  return (
+    <button
+      className="btn"
+      disabled={!!busy}
+      title="Short summaries help your editor remember each chapter cheaply"
+      onClick={async () => {
+        if (!getAISettings().apiKey) return toast('Connect your AI editor in Settings first.', 'error');
+        let n = 0;
+        for (const c of stale) {
+          setBusy(`Summarising ${++n} of ${stale.length}…`);
+          await maybeSummarize(c.id, true);
+        }
+        setBusy('');
+        toast('Chapter summaries updated.');
+      }}
+    >
+      {busy || `Update ${stale.length} chapter summar${stale.length > 1 ? 'ies' : 'y'}`}
+    </button>
+  );
+}
 
 export function Scenes() {
   const p = useProject();
@@ -34,6 +62,7 @@ export function Scenes() {
           <p className="lead">Answer a few simple questions for each chapter. You don't need any writing theory. Your editor can turn your answers into a plan.</p>
         </div>
         <div className="row">
+          <UpdateSummaries />
           <AskButton action="pacing" label="Check my pacing" run />
         </div>
       </div>

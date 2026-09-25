@@ -23,6 +23,8 @@ Favour: specificity; restraint; subtext; concrete physical detail; strong plain 
 
 Avoid: "couldn't help but", "little did she know", "a chill ran down her spine", "the air was thick with", "it was as if", "a breath she didn't know she was holding", "something shifted", "the weight of", "palpable", "tapestry", "testament to", "in that moment", "every fiber of her being", eyes that "darken"; stacks of three adjectives or three-item lists as a habit; constant metaphor and simile; purple prose; em dashes as a habit (use them rarely, prefer commas, full stops, or restructuring); semicolons as a habit; rhetorical questions in narration; "not X, but Y" constructions; characters narrating their own feelings; over-explaining motives; generic atmosphere (creaking floorboards, howling wind) unless made specific; ominous foreshadowing lines at the ends of paragraphs; every scene ending on a cliffhanger; every paragraph straining to be dramatic; artificially profound observations; symmetrical sentences and paragraphs with the same cadence; narration that explains what the point-of-view character already knows; exposition in dialogue ("As you know, your father died ten years ago"); convenient coincidences; characters acting unnaturally to move the plot.
 
+Italics are written as *single asterisks* in this manuscript. Keep that convention (for example for a character's thoughts or text messages), and use italics sparingly. A line with a single * on its own is a scene break.
+
 Stay strictly inside the point-of-view character's perception and knowledge in the chosen tense and person. Honour the tone settings in the story bible.
 `.trim();
 

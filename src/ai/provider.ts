@@ -2,6 +2,8 @@
 // so a different model or company can be added later without touching the UI.
 import { getPref, setPref } from '../storage/db';
 import { anthropicProvider } from './anthropic';
+import { openaiProvider } from './openai';
+import { manualProvider } from './manual';
 export { AIError } from './errors';
 
 export interface AIMessage {
@@ -51,26 +53,65 @@ export interface AISettings {
   creativity: number;
 }
 
-export const PROVIDERS: AIProvider[] = [anthropicProvider];
+export const PROVIDERS: AIProvider[] = [anthropicProvider, openaiProvider, manualProvider];
 
 export function getProvider(id: string): AIProvider {
   return PROVIDERS.find((p) => p.id === id) ?? PROVIDERS[0];
 }
 
-const DEFAULTS: AISettings = {
-  providerId: 'anthropic',
-  apiKey: '',
-  model: anthropicProvider.models[0].id,
-  fastModel: 'claude-haiku-4-5-20251001',
-  creativity: 0.7,
-};
-
-export function getAISettings(): AISettings {
-  return { ...DEFAULTS, ...getPref<Partial<AISettings>>('ai', {}) };
+interface ProviderPrefs {
+  apiKey: string;
+  model: string;
+  fastModel: string;
 }
 
-export function saveAISettings(s: Partial<AISettings>): void {
-  setPref('ai', { ...getAISettings(), ...s });
+interface StoredAI {
+  providerId: string;
+  creativity: number;
+  providers: Record<string, ProviderPrefs>;
+}
+
+const PROVIDER_DEFAULTS: Record<string, ProviderPrefs> = {
+  anthropic: { apiKey: '', model: anthropicProvider.models[0].id, fastModel: 'claude-haiku-4-5-20251001' },
+  openai: { apiKey: '', model: '', fastModel: '' },
+  // Copy & paste needs no key; a placeholder marks it as "connected".
+  manual: { apiKey: 'copy-and-paste', model: 'chatgpt.com', fastModel: 'chatgpt.com' },
+};
+
+function stored(): StoredAI {
+  const raw = getPref<Record<string, unknown>>('ai', {});
+  // Older versions stored one flat Claude setting: move it into the Claude slot.
+  const providers = (raw.providers as Record<string, ProviderPrefs>) ?? {
+    anthropic: { ...PROVIDER_DEFAULTS.anthropic, ...(raw.apiKey ? { apiKey: raw.apiKey as string } : {}), ...(raw.model ? { model: raw.model as string } : {}) },
+  };
+  return { providerId: (raw.providerId as string) || 'anthropic', creativity: typeof raw.creativity === 'number' ? raw.creativity : 0.7, providers };
+}
+
+/** The active provider's settings, flattened. */
+export function getAISettings(): AISettings {
+  const st = stored();
+  const pp = st.providerId === 'manual' ? PROVIDER_DEFAULTS.manual : { ...PROVIDER_DEFAULTS[st.providerId], ...st.providers[st.providerId] };
+  return { providerId: st.providerId, creativity: st.creativity, apiKey: pp.apiKey ?? '', model: pp.model ?? '', fastModel: pp.fastModel ?? '' };
+}
+
+/** Save settings; key/model changes apply to the active provider (or the one named in the patch). */
+export function saveAISettings(patch: Partial<AISettings>): void {
+  const st = stored();
+  const providerId = patch.providerId ?? st.providerId;
+  const cur = { ...PROVIDER_DEFAULTS[providerId], ...st.providers[providerId] };
+  const next: StoredAI = {
+    providerId,
+    creativity: patch.creativity ?? st.creativity,
+    providers: {
+      ...st.providers,
+      [providerId]: {
+        apiKey: patch.apiKey ?? cur.apiKey,
+        model: patch.model ?? cur.model,
+        fastModel: patch.fastModel ?? cur.fastModel,
+      },
+    },
+  };
+  setPref('ai', next);
 }
 
 export interface UsageTotals {

@@ -3,14 +3,14 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { Chapter, ChapterStatus, Project } from '../types';
 import { addItem, getState, moveItem, patchItem, removeItem, setState, updateProject, useApp, useProject } from '../story/store';
 import { newChapter, uid } from '../story/factory';
-import { chapterNumber, characterName, countWords, manuscriptWords, readingTime, saveChapterVersion, timeAgo, escapeRe } from '../story/reference';
-import { registerEditor } from '../editor/bridge';
-import { openEditor, runQuiet } from '../ai/session';
+import { chapterNumber, characterName, countWords, manuscriptWords, readingTime, saveChapterVersion, timeAgo, escapeRe, todayWords } from '../story/reference';
+import { registerEditor, setPendingJump, takePendingJump } from '../editor/bridge';
+import { maybeSummarize, openEditor, runQuiet } from '../ai/session';
 import { useSpeech } from '../editor/speech';
 import { checkProse } from '../editor/proseCheck';
 import { diffWords } from '../editor/diff';
 import { AIError, getAISettings } from '../ai/provider';
-import { Icon, Modal, confirmDialog, Term } from '../components/ui';
+import { Icon, Menu, Modal, confirmDialog, promptDialog, Term } from '../components/ui';
 import { toast } from '../story/store';
 
 const STATUSES: ChapterStatus[] = ['Idea', 'Outlined', 'Drafting', 'Revising', 'Done'];
@@ -157,7 +157,21 @@ function ChapterEditor({ p, ch, onRead }: { p: Project; ch: Chapter; onRead: () 
     }
   }, [ch.text]);
 
-  useEffect(() => () => commit(ta.current?.value ?? committed.current), [commit]);
+  useEffect(
+    () => () => {
+      commit(ta.current?.value ?? committed.current);
+      // Quietly refresh this chapter's summary for the editor's memory (cheap model; only if it changed a lot).
+      void maybeSummarize(ch.id);
+    },
+    [commit, ch.id],
+  );
+
+  // Arriving from a whole-book search result: jump to it.
+  useEffect(() => {
+    const j = takePendingJump(ch.id);
+    if (j) setTimeout(() => select(j.start, j.end), 150);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ch.id]);
 
   // Keep an automatic version when a chapter is opened, so any session can be rolled back.
   useEffect(() => {
@@ -235,6 +249,32 @@ function ChapterEditor({ p, ch, onRead }: { p: Project; ch: Chapter; onRead: () 
     insertAt(s, s, pad + phrase);
   });
 
+  const toggleItalic = () => {
+    const el = ta.current;
+    if (!el || el.selectionEnd === el.selectionStart) return toast('Select the words you want in italics first.');
+    const a = el.selectionStart;
+    const b = el.selectionEnd;
+    const sel = el.value.slice(a, b);
+    if (/^\*[^*]+\*$/.test(sel)) insertAt(a, b, sel.slice(1, -1));
+    else insertAt(a, b, `*${sel.replace(/\*/g, '')}*`);
+  };
+  const sceneBreak = () => {
+    const el = ta.current;
+    if (!el) return;
+    const at = el.selectionEnd;
+    insertAt(at, at, `${at > 0 && !el.value.slice(0, at).endsWith('\n\n') ? '\n\n' : ''}*\n\n`);
+  };
+  const saveVersionNow = async () => {
+    const label = await promptDialog('Save a version', 'A copy of this chapter as it is right now. You can compare or restore it from History.', { value: 'Saved by hand' });
+    if (label === null) return;
+    commit(text);
+    const cur = getState().project?.chapters.find((c) => c.id === ch.id);
+    if (!cur) return;
+    patchItem('chapters', ch.id, { versions: [{ id: uid(), at: Date.now(), label: label.trim() || 'Saved by hand', text }, ...cur.versions].slice(0, 40) });
+    toast('Version saved.');
+  };
+  const today = todayWords(p);
+
   const chWords = countWords(text);
   const allWords = manuscriptWords(p) - countWords(ch.text) + chWords;
   const no = chapterNumber(p, ch.id);
@@ -298,24 +338,27 @@ function ChapterEditor({ p, ch, onRead }: { p: Project; ch: Chapter; onRead: () 
           <button className={`btn ghost small${speech.listening ? ' on' : ''}`} onClick={speech.toggle} title='Dictate. Say "full stop", "comma" or "new paragraph" for punctuation.'>
             <Icon name="mic" size={16} /> {speech.listening ? 'Stop' : 'Talk'}
           </button>
-          <button className="btn ghost small" onClick={() => setModal('check')} title="Free, instant check for stock phrases and repetitive habits">
-            Check prose
-          </button>
-          <button className="btn ghost small" onClick={() => setModal('notes')} title="Your notes on this chapter">
-            <Icon name="note" size={16} /> Notes{ch.comments.length ? ` (${ch.comments.length})` : ''}
-          </button>
           <button className="btn ghost small" onClick={() => setModal('history')} title="Earlier versions of this chapter">
             <Icon name="history" size={16} /> History
-          </button>
-          <button className="btn ghost small" onClick={onRead} title="Read the whole manuscript">
-            <Icon name="book" size={16} /> Read book
           </button>
           <button className="btn ghost small" onClick={() => setState({ focusMode: true })} title="Hide everything except your page">
             <Icon name="focus" size={16} /> Focus
           </button>
+          <Menu
+            label={<>More ▾</>}
+            items={[
+              { label: 'Check my prose', hint: 'Free, instant, private', onClick: () => setModal('check') },
+              { label: `Notes on this chapter${ch.comments.length ? ` (${ch.comments.length})` : ''}`, onClick: () => setModal('notes') },
+              { label: 'Read the whole book', onClick: onRead },
+              { label: 'Italic', hint: 'Select words first · Ctrl+I', onClick: toggleItalic },
+              { label: 'Insert a scene break', hint: 'A centred * between scenes', onClick: sceneBreak },
+              { label: 'Update my story bible from this chapter', hint: 'Your editor lists new facts, clues and events', onClick: () => openEditor({ actionId: 'extract', chapterId: ch.id }, true) },
+              { label: 'Save a version now', onClick: saveVersionNow },
+            ]}
+          />
         </div>
       )}
-      {find && <FindBar text={text} onSelect={select} onReplaceAll={(v) => (saveChapterVersion(ch.id, 'Before replace all'), setText(v), commit(v))} onReplaceOne={insertAt} onClose={() => setFind(false)} />}
+      {find && <FindBar p={p} chapterId={ch.id} text={text} onSelect={select} onReplaceAll={(v) => (saveChapterVersion(ch.id, 'Before replace all'), setText(v), commit(v))} onReplaceOne={insertAt} onClose={() => setFind(false)} />}
       {speech.listening && (
         <div className="findbar">
           <span className="pill accent">Listening…</span>
@@ -337,7 +380,21 @@ function ChapterEditor({ p, ch, onRead }: { p: Project; ch: Chapter; onRead: () 
             onBlur={(e) => commit(e.target.value)}
             onMouseUp={onMouseUp}
             onClick={(e) => e.stopPropagation()}
-            onKeyUp={() => ta.current && ta.current.selectionEnd === ta.current.selectionStart && setSelBar(null)}
+            onKeyUp={(e) => {
+              const el = ta.current;
+              if (!el) return;
+              if (el.selectionEnd === el.selectionStart) setSelBar(null);
+              else if (e.shiftKey && el.selectionEnd - el.selectionStart > 3) {
+                const r = el.getBoundingClientRect();
+                setSelBar({ x: Math.max(r.left, 80), y: 64 });
+              }
+            }}
+            onKeyDown={(e) => {
+              if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'i') {
+                e.preventDefault();
+                toggleItalic();
+              }
+            }}
             placeholder={'Begin here. Write it rough. You can polish it later.\n\nIf you\'re not sure how to start, open your editor on the right and choose "Scene" or "Write".'}
             aria-label="Chapter text"
           />
@@ -353,12 +410,14 @@ function ChapterEditor({ p, ch, onRead }: { p: Project; ch: Chapter; onRead: () 
             ['Subtler', () => openEditor({ actionId: 'improve', selection: selection(), variant: 'subtler' }, true)],
             ['Editor\'s review', () => openEditor({ actionId: 'proseReview', selection: selection() }, true)],
             ['Ask about this', () => openEditor({ actionId: 'ask', selection: selection() })],
+            ['Italic', toggleItalic],
             [
               'Add note',
-              () => {
+              async () => {
                 const s = selection();
-                const note = window.prompt('Your note about this passage:');
-                if (note) patchItem('chapters', ch.id, { comments: [...ch.comments, { id: uid(), at: Date.now(), quote: s.text.slice(0, 300), note }] });
+                const note = await promptDialog('Add a note', `About: “${s.text.slice(0, 120)}${s.text.length > 120 ? '…' : ''}”`, { placeholder: 'Your note…', long: true, ok: 'Add note' });
+                const cur = getState().project?.chapters.find((c) => c.id === ch.id);
+                if (note?.trim() && cur) patchItem('chapters', ch.id, { comments: [...cur.comments, { id: uid(), at: Date.now(), quote: s.text.slice(0, 300), note: note.trim() }] });
               },
             ],
           ].map(([label, fn]) => (
@@ -381,6 +440,7 @@ function ChapterEditor({ p, ch, onRead }: { p: Project; ch: Chapter; onRead: () 
         </span>
         <span>{allWords.toLocaleString()} in the book</span>
         <span>{readingTime(chWords)}</span>
+        {today > 0 && <span className="today" title="Words added to your book today">Today: +{today.toLocaleString()}</span>}
         {ch.povCharacterId && (
           <span>
             <Term k="pov">POV</Term>: {characterName(p, ch.povCharacterId)}
@@ -425,12 +485,16 @@ function ChapterEditor({ p, ch, onRead }: { p: Project; ch: Chapter; onRead: () 
 }
 
 function FindBar({
+  p,
+  chapterId,
   text,
   onSelect,
   onReplaceAll,
   onReplaceOne,
   onClose,
 }: {
+  p: Project;
+  chapterId: string;
   text: string;
   onSelect: (s: number, e: number) => void;
   onReplaceAll: (v: string) => void;
@@ -440,6 +504,19 @@ function FindBar({
   const [q, setQ] = useState('');
   const [r, setR] = useState('');
   const [idx, setIdx] = useState(-1);
+  const [all, setAll] = useState(false);
+  const everywhere = useMemo(() => {
+    if (!all || q.length < 2) return [];
+    const re = new RegExp(escapeRe(q), 'gi');
+    const out: { chId: string; label: string; index: number; snip: string }[] = [];
+    p.chapters.forEach((c, i) => {
+      const src = c.id === chapterId ? text : c.text;
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(src)) && out.length < 200)
+        out.push({ chId: c.id, label: `Ch. ${i + 1}`, index: m.index, snip: src.slice(Math.max(0, m.index - 50), m.index + q.length + 50).replace(/\s+/g, ' ') });
+    });
+    return out;
+  }, [all, q, p.chapters, chapterId, text]);
   const matches = useMemo(() => {
     if (!q) return [] as number[];
     const re = new RegExp(escapeRe(q), 'gi');
@@ -484,10 +561,34 @@ function FindBar({
       >
         Replace all
       </button>
+      <label className="row small" style={{ cursor: 'pointer', gap: 6 }}>
+        <input type="checkbox" checked={all} onChange={(e) => setAll(e.target.checked)} /> Whole book
+      </label>
       <span className="spacer" />
       <button className="btn ghost small" onClick={onClose}>
         Close
       </button>
+      {all && q.length >= 2 && (
+        <div style={{ flexBasis: '100%', maxHeight: 240, overflowY: 'auto', background: 'var(--paper)', borderRadius: 8, padding: 6 }}>
+          {everywhere.length === 0 && <div className="small muted" style={{ padding: 6 }}>Not found anywhere in the book.</div>}
+          {everywhere.map((r, i) => (
+            <button
+              key={i}
+              className="ch-item"
+              onClick={() => {
+                if (r.chId === chapterId) onSelect(r.index, r.index + q.length);
+                else {
+                  setPendingJump({ chapterId: r.chId, start: r.index, end: r.index + q.length });
+                  updateProject({ currentChapterId: r.chId });
+                }
+              }}
+            >
+              <span className="pill neutral" style={{ marginRight: 8 }}>{r.label}</span>
+              <span className="small">…{r.snip}…</span>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -504,10 +605,11 @@ function HistoryModal({ ch, current, onClose }: { ch: Chapter; current: string; 
         <span className="spacer" />
         <button
           className="btn small"
-          onClick={() => {
-            const label = window.prompt('Name this version (optional):', 'Saved by hand') ?? '';
+          onClick={async () => {
+            const label = await promptDialog('Save a version', 'Give it a name if you like.', { value: 'Saved by hand' });
+            if (label === null) return;
             patchItem('chapters', ch.id, { text: current });
-            const versions = [{ id: uid(), at: Date.now(), label: label || 'Saved by hand', text: current }, ...ch.versions].slice(0, 40);
+            const versions = [{ id: uid(), at: Date.now(), label: label.trim() || 'Saved by hand', text: current }, ...ch.versions].slice(0, 40);
             patchItem('chapters', ch.id, { versions });
             toast('Version saved.');
           }}
@@ -704,7 +806,7 @@ function Reader({ p, onClose }: { p: Project; onClose: () => void }) {
                     <p key={k} className="sep">*</p>
                   ) : (
                     <p key={k} className={k === 0 ? 'first' : ''}>
-                      {para}
+                      {italicize(para)}
                     </p>
                   ),
                 )}
@@ -715,4 +817,9 @@ function Reader({ p, onClose }: { p: Project; onClose: () => void }) {
       </div>
     </div>
   );
+}
+
+/** Render *asterisk* italics as real italics. */
+function italicize(t: string) {
+  return t.split(/(\*[^*\n]+\*)/g).map((part, i) => (/^\*[^*]+\*$/.test(part) ? <em key={i}>{part.slice(1, -1)}</em> : part));
 }

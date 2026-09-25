@@ -1,7 +1,13 @@
 // The dashboard: where am I, what am I writing, what do I do next?
-import { go, setState, updateProject, useProject } from '../story/store';
+import { go, setState, toast, updateProject, useApp, useProject } from '../story/store';
+import { useEffect, useState } from 'react';
+import { backupToFolder, chooseFolder, folderSupported, getFolder } from '../services/backupFolder';
+import { getAISettings } from '../ai/provider';
+import { getPref, setPref } from '../storage/db';
+import { GUIDE, nextStep } from '../story/guide';
+import { startStep } from './Guide';
 import { openEditor } from '../ai/session';
-import { chapterNumber, countWords, manuscriptWords, readingTime, timeAgo } from '../story/reference';
+import { chapterNumber, countWords, manuscriptWords, readingTime, timeAgo, todayWords } from '../story/reference';
 import { Icon } from '../components/ui';
 import { backupProject } from '../services/exporter';
 import type { ProjectStatus } from '../types';
@@ -13,7 +19,6 @@ export function Home() {
   const curNo = chapterNumber(p, cur.id);
   const pct = Math.min(100, Math.round((words / Math.max(1, p.targetWords)) * 100));
   const lastWords = cur.text.trim().split(/\s+/).slice(-40).join(' ');
-  const needsBackup = !p.lastBackupAt || Date.now() - p.lastBackupAt > 7 * 864e5;
 
   const counts = [
     { page: 'characters' as const, n: p.characters.length, name: 'Characters', d: 'Who they are, what they want, what they hide.' },
@@ -56,6 +61,7 @@ export function Home() {
           </div>
           <div className="small muted" style={{ marginTop: 6 }}>
             {pct}% of a {p.targetWords.toLocaleString()}-word novel · {readingTime(words)}
+            {todayWords(p) > 0 && <span className="today"> · Today: +{todayWords(p).toLocaleString()} words</span>}
           </div>
           <div style={{ marginTop: 26 }}>
             <button className="btn primary big" onClick={() => go('write')}>
@@ -72,6 +78,9 @@ export function Home() {
         <div className="helper-card">
           <div className="eyebrow">Your editor</div>
           <div className="serif" style={{ fontSize: '1.4rem', lineHeight: 1.25 }}>Not sure what to do next?</div>
+          <button className="btn big primary" onClick={() => startStep(nextStep(p))} title="Your step-by-step guide">
+            <Icon name="compass" /> Guide, step {nextStep(p) + 1}: {GUIDE[nextStep(p)].title}
+          </button>
           <button className="btn big" onClick={() => openEditor({ actionId: 'stuck' })}>
             <Icon name="compass" /> I'm stuck
           </button>
@@ -87,24 +96,8 @@ export function Home() {
         </div>
       </div>
 
-      {needsBackup && (
-        <div className="card row" style={{ marginBottom: 24, background: 'var(--brass-soft)' }}>
-          <Icon name="download" />
-          <div>
-            <b>Keep a safety copy.</b> <span className="muted">Last backup: {timeAgo(p.lastBackupAt)}. A backup file lets you restore your novel on any computer.</span>
-          </div>
-          <span className="spacer" />
-          <button
-            className="btn primary"
-            onClick={() => {
-              backupProject(p);
-              updateProject({ lastBackupAt: Date.now() });
-            }}
-          >
-            Save a backup file
-          </button>
-        </div>
-      )}
+      <BackupCard />
+      {!p.isDemo && <GettingStarted />}
 
       <div className="section-title">
         <h2>Your book</h2>
@@ -149,6 +142,120 @@ export function Home() {
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+function BackupCard() {
+  const p = useProject();
+  const needsPerm = useApp((s) => s.folderNeedsPermission);
+  const [folder, setFolder] = useState<string | null>(null);
+  useEffect(() => {
+    getFolder().then((h) => setFolder(h?.name ?? ''));
+  }, []);
+  const stale = !p.lastBackupAt || Date.now() - p.lastBackupAt > 7 * 864e5;
+  if (folder === null || (!stale && !needsPerm)) return null;
+
+  const saveToFolder = async () => {
+    const r = await backupToFolder(p, true);
+    if (r === 'saved') {
+      updateProject({ lastBackupAt: Date.now() });
+      setState({ folderNeedsPermission: false });
+      toast('Backup saved to your folder. From now on it happens automatically while you write.');
+    } else toast('Couldn\'t save to that folder. Try choosing it again in Settings.', 'error');
+  };
+
+  return (
+    <div className="card row" style={{ marginBottom: 24, background: 'var(--brass-soft)' }}>
+      <Icon name="download" />
+      <div style={{ flex: 1, minWidth: 240 }}>
+        {folder ? (
+          <>
+            <b>Your automatic backups are paused.</b>{' '}
+            <span className="muted">The browser needs your OK to keep saving backups to “{folder}”. One click does it.</span>
+          </>
+        ) : (
+          <>
+            <b>Keep a safety copy.</b>{' '}
+            <span className="muted">
+              Last backup: {timeAgo(p.lastBackupAt)}.{' '}
+              {folderSupported ? 'Choose a folder once (Documents is fine) and Nightjar will back up your novel there automatically.' : 'A backup file lets you restore your novel on any computer.'}
+            </span>
+          </>
+        )}
+      </div>
+      {folder ? (
+        <button className="btn primary" onClick={saveToFolder}>
+          Allow and back up now
+        </button>
+      ) : (
+        <>
+          {folderSupported && (
+            <button
+              className="btn primary"
+              onClick={async () => {
+                const h = await chooseFolder();
+                if (h) {
+                  setFolder(h.name);
+                  await saveToFolder();
+                }
+              }}
+            >
+              Choose a backup folder
+            </button>
+          )}
+          <button
+            className={`btn${folderSupported ? '' : ' primary'}`}
+            onClick={() => {
+              backupProject(p);
+              updateProject({ lastBackupAt: Date.now() });
+            }}
+          >
+            Save a backup file
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
+
+function GettingStarted() {
+  const p = useProject();
+  const key = `started-hidden:${p.id}`;
+  const [hidden, setHidden] = useState(getPref(key, false));
+  const steps = [
+    { done: !!p.bible.premise.trim(), label: 'Describe your story in a few sentences', go: () => go('story') },
+    { done: p.characters.length > 0, label: 'Add your main character', go: () => go('characters') },
+    { done: !!getAISettings().apiKey, label: 'Connect your AI editor (2 minutes)', go: () => go('settings') },
+    { done: manuscriptWords(p) >= 100, label: 'Write your first paragraph, rough is fine', go: () => go('write') },
+    { done: !!p.lastBackupAt, label: 'Set up backups', go: () => go('settings') },
+  ];
+  const left = steps.filter((x) => !x.done).length;
+  if (hidden || left === 0) return null;
+  return (
+    <div className="card checklist-card" style={{ marginBottom: 24 }}>
+      <div className="row">
+        <h3>Getting started</h3>
+        <span className="small muted">{steps.length - left} of {steps.length} done</span>
+        <span className="spacer" />
+        <button className="btn ghost small" onClick={() => (setPref(key, true), setHidden(true))}>
+          Hide this
+        </button>
+      </div>
+      <ul style={{ margin: '8px 0 0', padding: 0 }}>
+        {steps.map((st) => (
+          <li key={st.label}>
+            <span className={`tick${st.done ? ' done' : ''}`}>{st.done ? '✓' : ''}</span>
+            {st.done ? (
+              <span className="muted" style={{ textDecoration: 'line-through' }}>{st.label}</span>
+            ) : (
+              <button className="btn ghost small" style={{ padding: '2px 6px', fontSize: '1rem' }} onClick={st.go}>
+                {st.label} →
+              </button>
+            )}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

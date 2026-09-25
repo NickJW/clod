@@ -409,3 +409,20 @@ details.group .inner { padding: 18px 20px 4px; }
 @media print {
   .nav, .ai, .editor-bar, .editor-foot { display: none !important; }
 }
+
+.guide-banner { position: sticky; top: 0; z-index: 8; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 20px; background: var(--accent-soft); border-bottom: 1px solid color-mix(in srgb, var(--accent) 30%, transparent); }
+.guide-banner .guide-todo { max-width: 42ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.app.compact .guide-banner + .write .editor-bar { top: 0; }
+.menu { position: fixed; z-index: 50; margin-top: 6px; background: var(--paper); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 10px 30px rgba(0,0,0,.18); padding: 6px; min-width: 270px; transform: translateX(-60%); }
+.menu button { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; width: 100%; background: none; border: 0; text-align: left; padding: 9px 12px; border-radius: 7px; cursor: pointer; font-size: 0.95rem; color: var(--ink); }
+.menu button:hover { background: var(--bg-2); }
+.editor-bar { overflow: visible; }
+.checklist-card li { list-style: none; display: flex; gap: 10px; align-items: center; padding: 6px 0; }
+.checklist-card .tick { width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--line); display: grid; place-items: center; flex: none; font-size: 0.8rem; }
+.checklist-card .tick.done { background: var(--ok); border-color: var(--ok); color: #fff; }
+.today { color: var(--ok); font-weight: 600; }
+.app.compact .ai:not(.closed) { width: 380px; }
+.reader em, .prose-out em { font-style: italic; }
+.editor-bar { flex-wrap: wrap; row-gap: 4px; }
+.ai-compose .btn.primary { white-space: normal; text-align: center; }
+.guide-banner { padding: 8px 20px; }
