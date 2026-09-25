@@ -295,7 +295,7 @@ function ChapterEditor({ p, ch, onRead }: { p: Project; ch: Chapter; onRead: () 
   const summaryStale = ch.summary && Math.abs(countWords(ch.text) - ch.summaryWordCount) > 150;
   const [summarizing, setSummarizing] = useState(false);
   const summarize = async () => {
-    if (!getAISettings().apiKey) return toast('Connect your AI editor in Settings first.', 'error');
+    if (!getAISettings().apiKey) return toast('Choose your AI helper in Settings first.', 'error');
     setSummarizing(true);
     try {
       commit(text);

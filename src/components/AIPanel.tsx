@@ -131,7 +131,7 @@ function Compose({ page }: { page: string }) {
   const [, force] = useState(0);
   // refresh selection hint when the author clicks into the panel
   const sel = needsSel || def.needs === 'selection-or-chapter' ? prefill?.selection ?? currentSelection() : undefined;
-  const est = useMemo(() => (getAISettings().apiKey ? estimate(input()) : { tokens: 0, label: '' }), [mode, request, variant, prefill, sel?.text]); // eslint-disable-line
+  const est = useMemo(() => (getAISettings().apiKey && getAISettings().providerId !== 'manual' ? estimate(input()) : { tokens: 0, label: '' }), [mode, request, variant, prefill, sel?.text]); // eslint-disable-line
 
   const canRun = !(def.needs === 'request' && !request.trim()) && !(needsSel && !sel) && !(mode === 'stuck' && !variant);
 
@@ -345,7 +345,7 @@ function ThreadView({ t }: { t: Thread }) {
               Send
             </button>
           </div>
-          {t.usage && (
+          {t.usage && t.usage.inputTokens + t.usage.outputTokens > 0 && (
             <div className="cost" style={{ marginTop: 6 }}>
               {(t.usage.inputTokens + t.usage.cachedTokens + t.usage.outputTokens).toLocaleString()} tokens
               {t.usage.cachedTokens > 0 && ` (${t.usage.cachedTokens.toLocaleString()} reused at a discount)`}

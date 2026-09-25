@@ -12,8 +12,15 @@ A calm, private writing studio for a first-time novelist writing a dark mystery 
 6. **Talk**: click the microphone anywhere and speak instead of typing (Chrome and Edge).
 7. **I'm stuck** and **What should I work on?** are on the Home page whenever you need them.
 
-### Connecting the AI editor (once, about 2 minutes)
-Settings → *Your AI editor* has step-by-step instructions for Claude (recommended), ChatGPT (OpenAI API key), or copy & paste with a ChatGPT/Claude subscription. With a key, the app talks to the AI directly from your computer, with no middleman.
+### Using the AI editor with your ChatGPT or Claude subscription
+There's nothing to set up. Tell Nightjar once (during setup, or in Settings) whether you use **ChatGPT or Claude**, and whether it's the **desktop app or the website**. When you ask your editor for help:
+1. Click **Copy the request**. It already includes the relevant parts of your story.
+2. Switch to ChatGPT or Claude, paste it into a new chat, and send. (Follow-up questions go in the same chat.)
+3. Copy the answer and come back. Nightjar fills it in by itself, and you click **Use this answer**.
+
+Everything else (Accept / Keep mine, Use this / Maybe / Not for me) works exactly the same. The whole app also works without any AI at all.
+
+*Advanced (optional):* Settings → "Advanced: connect directly with an API key" connects Claude or OpenAI directly, with no copy and paste, paid per use.
 
 ### Keeping your work safe
 - Everything is saved in this browser on this computer. There's no account, no server and no tracking.

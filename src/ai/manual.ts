@@ -6,6 +6,8 @@ import { AIError } from './errors';
 
 export interface ManualRequest {
   prompt: string;
+  /** A follow-up: paste into the same chat, not a new one. */
+  followUp: boolean;
   resolve: (text: string) => void;
   reject: (e: Error) => void;
 }
@@ -28,13 +30,14 @@ export const manualProvider: AIProvider = {
   name: 'My ChatGPT or Claude subscription (copy & paste)',
   models: [],
   complete(req) {
-    const convo = req.messages
-      .map((m, i) => (req.messages.length === 1 ? m.content : `${m.role === 'user' ? (i === 0 ? 'REQUEST' : 'FOLLOW-UP') : 'YOUR EARLIER ANSWER'}:\n${m.content}`))
-      .join('\n\n---\n\n');
-    const prompt = `${req.system}\n\n${req.context ? `${req.context}\n\n` : ''}=====\n\n${convo}`;
+    const followUp = req.messages.length > 1;
+    const prompt = followUp
+      ? req.messages[req.messages.length - 1].content
+      : `${req.system}\n\n${req.context ? `${req.context}\n\n` : ''}=====\n\n${req.messages[0].content}`;
     return new Promise((resolve, reject) => {
       const r: ManualRequest = {
         prompt,
+        followUp,
         resolve: (text) => resolve({ text, usage: { inputTokens: 0, outputTokens: 0, cachedTokens: 0 }, stoppedEarly: false }),
         reject,
       };

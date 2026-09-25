@@ -84,7 +84,7 @@ function stored(): StoredAI {
   const providers = (raw.providers as Record<string, ProviderPrefs>) ?? {
     anthropic: { ...PROVIDER_DEFAULTS.anthropic, ...(raw.apiKey ? { apiKey: raw.apiKey as string } : {}), ...(raw.model ? { model: raw.model as string } : {}) },
   };
-  return { providerId: (raw.providerId as string) || 'anthropic', creativity: typeof raw.creativity === 'number' ? raw.creativity : 0.7, providers };
+  return { providerId: (raw.providerId as string) || (raw.apiKey ? 'anthropic' : 'manual'), creativity: typeof raw.creativity === 'number' ? raw.creativity : 0.7, providers };
 }
 
 /** The active provider's settings, flattened. */

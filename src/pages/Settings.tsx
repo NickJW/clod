@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import { getAISettings, getProvider, getUsage, resetUsage, saveAISettings } from '../ai/provider';
 import { defaultOpenAIModels, listOpenAIModels } from '../ai/openai';
+import { CHAT_APPS, type ChatApp, type ChatWhere } from '../components/ManualHost';
 import { AIError } from '../ai/errors';
 import { getPref, listSnapshots, setPref, type Snapshot } from '../storage/db';
 import { addItem, closeProject, createProject, setState, toast, updateProject, useApp, useProject } from '../story/store';
@@ -93,7 +94,18 @@ export function Settings() {
           <h1>Settings</h1>
         </div>
       </div>
-      <AISection />
+      <ChatHelper />
+      <details className="group">
+        <summary>
+          <div>
+            <h3>Advanced: connect directly with an API key</h3>
+            <div className="muted small">Optional. Faster (no copy and paste), but paid separately per use. Not needed with a ChatGPT or Claude subscription.</div>
+          </div>
+        </summary>
+        <div className="inner">
+          <AISection />
+        </div>
+      </details>
       <Appearance />
       <ExportSection />
       <ImportSection />
@@ -119,6 +131,58 @@ const SETUP: Record<string, { site: string; url: string; steps: string[]; placeh
     note: 'Important: a ChatGPT Plus or Pro subscription does not include this. OpenAI bills API use separately, from platform.openai.com.',
   },
 };
+
+function ChatHelper() {
+  const [, force] = useState(0);
+  const cur = getAISettings().providerId;
+  const app = getPref<ChatApp>('chatApp', 'chatgpt');
+  const where = getPref<ChatWhere>('chatWhere', 'app');
+  const set = (k: string, v: string) => {
+    setPref(k, v);
+    setPref('chatAppChosen', true);
+    if (cur !== 'manual') saveAISettings({ providerId: 'manual' });
+    force((n) => n + 1);
+  };
+  return (
+    <div className="card">
+      <h2>Your AI helper</h2>
+      <p className="muted">
+        Your editor works with the ChatGPT or Claude subscription you already have. When you ask for help, Nightjar prepares the request with your story details. You paste it into your chat app, copy the answer, and come back. No accounts or keys to set up.
+      </p>
+      {cur !== 'manual' && (
+        <div className="note-box" style={{ marginBottom: 12 }}>
+          You're currently connected with an API key (see Advanced below). Choosing an option here switches back to using your subscription.
+        </div>
+      )}
+      <div className="grid-2" style={{ marginTop: 10 }}>
+        <div className="field">
+          <span className="lab">Which do you use?</span>
+          <div className="chips">
+            {(['chatgpt', 'claude'] as ChatApp[]).map((a) => (
+              <button key={a} className={`chip${cur === 'manual' && app === a ? ' on' : ''}`} onClick={() => set('chatApp', a)}>
+                {CHAT_APPS[a].name}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="field">
+          <span className="lab">Where do you use it?</span>
+          <div className="chips">
+            <button className={`chip${cur === 'manual' && where === 'app' ? ' on' : ''}`} onClick={() => set('chatWhere', 'app')}>
+              The desktop app
+            </button>
+            <button className={`chip${cur === 'manual' && where === 'web' ? ' on' : ''}`} onClick={() => set('chatWhere', 'web')}>
+              The website
+            </button>
+          </div>
+        </div>
+      </div>
+      <p className="small muted" style={{ margin: 0 }}>
+        Privacy tip: your chat app may use conversations to improve its AI. In ChatGPT, you can turn this off under Settings → Data controls → "Improve the model for everyone". In Claude, look under Settings → Privacy.
+      </p>
+    </div>
+  );
+}
 
 function AISection() {
   const [s, setS] = useState(getAISettings());
@@ -167,7 +231,7 @@ function AISection() {
   };
 
   return (
-    <div className="card" id="ai">
+    <div id="ai">
       <h2>Your AI editor</h2>
       <p className="muted">
         Your editor connects directly from this computer to the AI company you choose, with your own key. There's no middleman, and you pay only for what you use.

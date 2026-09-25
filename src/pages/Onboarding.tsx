@@ -7,6 +7,7 @@ import { AutoTextarea, Icon, confirmDialog } from '../components/ui';
 import { timeAgo } from '../story/reference';
 import { readBackup } from '../services/exporter';
 import { useSpeech } from '../editor/speech';
+import { setPref } from '../storage/db';
 
 const KINDS = ['Psychological thriller', 'Dark mystery', 'Crime / detective', 'Gothic mystery', 'Romantic suspense', 'Domestic suspense', 'Not sure yet'];
 
@@ -19,12 +20,14 @@ interface Answers {
   mystery: string;
   ending: string;
   feel: string;
+  chatApp: 'chatgpt' | 'claude';
+  chatWhere: 'app' | 'web';
 }
 
 export function Onboarding() {
   const projects = useApp((s) => s.projects);
   const [step, setStep] = useState(projects.length ? -1 : 0);
-  const [a, setA] = useState<Answers>({ title: '', kinds: [], know: '', heroName: '', hero: '', mystery: '', ending: '', feel: '' });
+  const [a, setA] = useState<Answers>({ title: '', kinds: [], know: '', heroName: '', hero: '', mystery: '', ending: '', feel: '', chatApp: 'chatgpt', chatWhere: 'app' });
   const set = (patch: Partial<Answers>) => setA((x) => ({ ...x, ...patch }));
 
   if (step === -1)
@@ -121,9 +124,35 @@ export function Onboarding() {
     { q: 'Do you have a mystery?', body: <Voice value={a.mystery} onChange={(mystery) => set({ mystery })} placeholder="What happened? Who might have done it? What's the secret at the centre?" /> },
     { q: 'Do you know how it ends?', body: <Voice value={a.ending} onChange={(ending) => set({ ending })} placeholder="It's completely fine not to know yet." /> },
     { q: 'How should it feel to read?', body: <Voice value={a.feel} onChange={(feel) => set({ feel })} placeholder='e.g. "Disturbing but not gratuitous. Slow-burn. Claustrophobic small town."' /> },
+    {
+      q: 'Which AI helper do you use?',
+      body: (
+        <>
+          <p className="muted">Your editor works with the subscription you already have. You'll copy and paste between Nightjar and your chat app.</p>
+          <div className="chips" style={{ marginBottom: 14 }}>
+            {(['chatgpt', 'claude'] as const).map((x) => (
+              <button key={x} className={`chip${a.chatApp === x ? ' on' : ''}`} onClick={() => set({ chatApp: x })}>
+                {x === 'chatgpt' ? 'ChatGPT' : 'Claude'}
+              </button>
+            ))}
+          </div>
+          <div className="chips">
+            <button className={`chip${a.chatWhere === 'app' ? ' on' : ''}`} onClick={() => set({ chatWhere: 'app' })}>
+              I use the desktop app
+            </button>
+            <button className={`chip${a.chatWhere === 'web' ? ' on' : ''}`} onClick={() => set({ chatWhere: 'web' })}>
+              I use the website
+            </button>
+          </div>
+        </>
+      ),
+    },
   ];
 
   const finish = async () => {
+    setPref('chatApp', a.chatApp);
+    setPref('chatWhere', a.chatWhere);
+    setPref('chatAppChosen', true);
     const p = newProject(a.title.trim() || 'My Novel');
     if (a.kinds.length) p.bible.genre = a.kinds.filter((k) => k !== 'Not sure yet').join(' / ') || p.bible.genre;
     p.bible.premise = a.know.trim();
