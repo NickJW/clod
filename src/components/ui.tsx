@@ -436,6 +436,7 @@ export function TourButton({ className = 'btn', label = 'Watch the video tour (7
           <video poster="./tour/poster.jpg" controls autoPlay preload="metadata" style={{ width: '100%', borderRadius: 10, background: '#000' }}>
             <source src="./tour/nightjar-tour.webm" type="video/webm" />
             <source src="./tour/nightjar-tour.mp4" type="video/mp4" />
+            <track kind="captions" src="./tour/nightjar-tour.vtt" srcLang="en" label="English" default />
           </video>
           <p className="small muted" style={{ marginTop: 8 }}>
             Tip: click the square in the bottom-right corner of the video for full screen. You can pause at any time and try each step yourself.

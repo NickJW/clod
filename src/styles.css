@@ -426,3 +426,5 @@ details.group .inner { padding: 18px 20px 4px; }
 .editor-bar { flex-wrap: wrap; row-gap: 4px; }
 .ai-compose .btn.primary { white-space: normal; text-align: center; }
 .guide-banner { padding: 8px 20px; }
+
+video::cue { font-size: 1.35rem; line-height: 1.4; background: rgba(20, 16, 14, 0.82); color: #fff; }
