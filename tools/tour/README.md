@@ -8,4 +8,5 @@ Scripts that produce `public/tour/` (the narrated walkthrough shown in the app).
 - `record.mjs`: drives the real app with Playwright (canned AI answers), timed to the narration. Env `TOUR` = working dir, `PW` = playwright path.
 - `vtt.py`: builds subtitles from `starts.json` and `durations.json`.
 - `clips/*.ogg`: verified narration clips (convert to `.wav` in the working dir before use).
-- `mux.py`: adds the voice clips to `raw.webm` at the scene start times in `vstarts.json`. Read those from the video itself (the caption box changes per scene), not from `starts.json`: the recording's clock drifts about a second per scene behind the script's clock.
+- `mux2.py`: builds the final video. Scene starts come from a coloured marker strip `record.mjs` draws along the bottom edge (cropped off in the output). Each scene is fitted to its narration (sped up to 1.4x, or held on its last frame), and the voice is placed on the real cut lengths. Writes `outstarts.json` for `vtt.py` (use trim 0).
+- Recording size is 1600x1000 so pages have room beside the editor panel.

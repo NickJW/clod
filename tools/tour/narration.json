@@ -25,6 +25,11 @@
   "text": "The Story Bible holds the big picture: your premise, your setting, and the feel of the book. On the Tone tab, simple sliders tell your editor how dark, how romantic, or how fast you want it. On the Decisions tab, every idea is marked either Decided, or Maybe. Your editor treats decided things as fact, and never treats a maybe as fact."
  },
  {
+  "id": "influences",
+  "caption": "Books you love become your style guide",
+  "text": "Also on the Tone tab: the books and authors you love. Name them, and say what you love about each one. Then one click turns them into a style guide for your book. Your editor learns the craft behind them, never their words, and blends it with your own voice."
+ },
+ {
   "id": "characters",
   "caption": "Characters: wants, fears and secrets",
   "text": "In Characters, each person has a profile: what they want, what they fear, what they hide, and how they talk. You don't need to fill everything in. And here's a lovely tool: you can interview a character. Ask Owen where he was the night Tess died, and he answers in his own voice, and he lies, just as he would."
@@ -43,6 +48,11 @@
   "id": "outline",
   "caption": "Scenes and Outline: plan with simple questions",
   "text": "In Scenes and Outline, you plan each chapter by answering simple questions. What happens? What does she want? What gets in the way? What should the reader wonder afterwards? Then one click turns your answers into a chapter plan you can write from."
+ },
+ {
+  "id": "draft",
+  "caption": "A first draft of any chapter, from your plan",
+  "text": "Facing a blank chapter? Click Draft this chapter for me. Your editor writes a full first draft from your plan, your characters and your clues, in your style. Then it edits its own draft, the way a professional would. You read it first, and if you like it, put it in your chapter and make it your own."
  },
  {
   "id": "write",

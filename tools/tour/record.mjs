@@ -65,7 +65,11 @@ const SOLVE = '```json\n' + JSON.stringify({ chapters: [1, 2, 3, 4, 5].map((n) =
   { reader: 'fan', suspect: n < 2 ? 'Julian Hart' : n < 5 ? 'Elias Crane' : 'Owen Pryce', confidence: [20, 35, 40, 50, 75][n - 1], why: 'He was at the house that night.' },
   { reader: 'expert', suspect: n < 3 ? 'Elias Crane' : 'Owen Pryce', confidence: [20, 30, 45, 55, 80][n - 1], why: 'The watch detail.' } ] })) }) + '\n```';
 
+const STYLE = "**Point of view and distance**\n- Close third person, Nora only. Let her insurance-claims eye colour how she reads people and rooms.\n\n**Sentences and rhythm**\n- Short, plain sentences that carry the weight, then a longer one that trails into observation.\n\n**Description and atmosphere**\n- Weather, cold light and household chores mirror the mood. One tactile detail per beat: lemon polish, damp wool, rust.\n\n**Dialogue**\n- Sparse. People talk around what they mean and hide behind the weather.\n\n**Suspense and what to withhold**\n- Hide clues inside ordinary chores, so they're obvious only in hindsight.\n\n**Chapter openings and endings**\n- Open on a blunt fact. End on an object or an unanswered beat, never a cliffhanger line.";
+const DRAFT = "Nora left her boots by the kitchen door. The salt dried to pale crusts on the oak before she reached the stove.\n\nThe house held the damp of the river. Margaret had gone to bed, leaving her coat over the back of the rocker instead of hanging it in the hall. It was a small change of habit, and Nora noticed it. Nora didn't light the lamp. She used the blue click of the burner to heat water for tea she didn't want.\n\nThe tide table from the office was pinned to the fridge by a yellow plastic turnip. She stood in the pilot flame's glare and ran her thumbnail down the column.\n\nNovember third. High water at two-fourteen in the afternoon. Low water at eight-twenty-five at night. By eleven, when the sergeant claimed the sea was four feet up the granite, the harbour mouth would be silt and old pot-warp. A man could walk three hundred yards without getting his shins wet if he didn't mind the bottom smelling of rotted weed and diesel.\n\nShe drank the water cold from the tap and took her jacket from the peg.\n\nGravel popped under her soles. In Carrick Bay after dark there was no traffic, only the low suck of the swell against the timber piles at the south wharf and the regular iron groan of the buoy off Gull Island. The wind came out of the northeast with the smell of wet slate and herring guts.\n\nShe passed the co-op with its stacks of wire pots like blind gray hives, then the slip where Julian kept his skiff. The skiff was tied with two half-hitches that looked as though they had been thrown by someone who expected to be gone five minutes.\n\nThe breakwater began where the road gave way to ledge. Four hundred yards of hand-split granite laid down before the war, bearded with weed that froze hard by December. The top was flat enough if you kept your boots wide of the cracks where the black water stayed oily even when the outer bay kicked up white.\n\nNora walked with her hands deep in her pockets, her chin tucked into her wool scarf. She had her father's gait, long and flat-footed, though she shortened her stride on the rounded blocks.\n\nAt the turn, where the wall narrowed and the spray caught you if the blow was south-east, she stopped.\n\nThe tide was down. The ribs of an old dory poked through the silt three yards from the base. The mud looked like wet cement, crusted with salt where the basin had drained four hours earlier. There were gull tracks near the dory, three-pointed stars pressed deep into the grey muck, but nothing else. No heels. No drag. No boot prints coming back from the light that blinked red every six seconds on the point.\n\nThe report said she fell from the third section out, right where the beard-weed grew thickest.\n\nNora crouched. The stone bit through her wool trousers. She ran her fingers down the vertical face of the granite block. There was no lichen there, only a grease left by the mussels that grew below the line. A boot would have scoured that clean. A hand would have left a smear.\n\n\"You'll ruin those knees.\"\n\nThe voice came from behind her, where the path widened into the gravel. She didn't jump. She had heard the loose stone turn five paces back.\n\nElias Crane stood with his hands in the pockets of an army surplus coat that smelled of linseed oil and damp sheep. He hadn't brought a lamp. His face was gray in the starlight, the scar across his cheekbone looking like a shadow from the wick.\n\n\"The mud's six feet deep down there,\" he said.\n\n\"I know.\"\n\n\"Your father lost a three-inch block off the derrick there back in eighty-four. Took two weeks to hook it out.\" He stayed where he was, his boots planted on the dry gravel where the saltgrass started. \"What are you looking for?\"\n\n\"The place where she fell.\"\n\n\"There isn't one.\"\n\nNora stood. Her joints cracked in the cold. \"The sergeant said the third section.\"\n\n\"Grier hasn't hauled a pot since he was twenty. He thinks the water goes where the schedule says it does.\" Crane shifted his weight. \"The tide was out at eleven. You know that. You looked it up.\"\n\n\"I looked it up.\"\n\n\"If she'd gone in off the stone then, she'd have stuck in the grease till morning. The gulls would have had her before the water came back to lift her.\" He looked past her toward the point, where the white beam turned against the mist. \"She didn't fall here, Nora.\"\n\n\"Why are you telling me this?\"\n\n\"Because you're walking on the wrong side of the town.\"\n\n\"Whose side are you on?\"\n\nCrane looked at her. His eyes were pale in the dark, the color of cod bellies. \"Nobody's. That's why I'm still here.\"\n\nHe turned before she could answer and began walking back toward the houses, his boots crunching slow and even on the dry weed. Nora watched him until the dark took his shoulders, then she looked down at the mud again. The gull tracks were filling with the skim of the new tide, gray water sliding over the silt without a sound.";
 function answerFor(prompt) {
+  if (prompt.includes('Write a practical style guide')) return STYLE;
+  if (prompt.includes('Before writing, silently decide') || prompt.includes('You are now her line editor')) return DRAFT;
   if (prompt.includes('For EACH chapter, rate honestly')) return ANALYSIS;
   if (prompt.includes('Simulate three different attentive readers')) return SOLVE;
   if (prompt.includes('Role-play as')) return OWEN;
@@ -122,15 +126,24 @@ const OVERLAY = () => {
     const cap = document.getElementById('tour-cap');
     if (!cap) return;
     cap.innerHTML = `<small>Step ${step} of ${total}</small>${text}`;
+    // Machine-readable scene marker along the bottom edge (cropped out of the final video).
+    let mark = document.getElementById('tour-mark');
+    if (!mark) {
+      mark = document.createElement('div');
+      mark.id = 'tour-mark';
+      mark.style.cssText = 'position:fixed;left:0;right:0;bottom:0;height:6px;z-index:100001;pointer-events:none';
+      document.body.appendChild(mark);
+    }
+    mark.style.background = `rgb(${(step * 37) % 256},${(step * 91) % 256},${(step * 53) % 256})`;
     cap.style.opacity = '1';
   };
 };
 
 const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome', proxy: { server: process.env.HTTPS_PROXY, bypass: '<-loopback>,localhost,127.0.0.1' } });
 const ctx = await browser.newContext({
-  viewport: { width: 1280, height: 800 },
+  viewport: { width: 1600, height: 1000 },
   ignoreHTTPSErrors: true,
-  recordVideo: { dir: `${DIR}/raw`, size: { width: 1280, height: 800 } },
+  recordVideo: { dir: `${DIR}/raw`, size: { width: 1600, height: 1000 } },
 });
 await ctx.addInitScript(OVERLAY);
 await ctx.addInitScript(() => {
@@ -152,7 +165,7 @@ const page = await ctx.newPage();
 const t0 = Date.now();
 const starts = {};
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-let mx = 640, my = 400;
+let mx = 800, my = 500;
 
 async function moveTo(loc) {
   await loc.scrollIntoViewIfNeeded().catch(() => {});
@@ -254,6 +267,18 @@ await scene('bible', async () => {
   await scroll(350);
   await moveTo(page.locator('.status-select').first());
 });
+await scene('influences', async () => {
+  await click(page.getByRole('button', { name: 'Tone & feel' }));
+  await sleep(800);
+  await scroll(900);
+  await moveTo(page.locator('label.field', { hasText: 'Your influences' }).locator('textarea'));
+  await sleep(4500);
+  await click(page.getByRole('button', { name: 'Turn my influences into a style guide' }));
+  await waitAI();
+  await moveTo(page.locator('.thread .md').first());
+  await sleep(2500);
+  await click(page.getByRole('button', { name: 'Use as my style guide' }));
+});
 await scene('characters', async () => {
   await click(nav('Characters'));
   await sleep(3500);
@@ -301,12 +326,30 @@ await scene('outline', async () => {
   await waitAI();
   await moveTo(page.locator('.thread .md').first());
 });
+await scene('draft', async () => {
+  await click(nav('Write'));
+  await sleep(1500);
+  await click(page.locator('.ch-item', { hasText: 'Low Water' }).first());
+  await sleep(1500);
+  await moveTo(page.locator('.draft-offer'));
+  await sleep(4000);
+  await click(page.locator('.draft-offer').getByRole('button', { name: /Draft this chapter/ }));
+  await sleep(1200);
+  await click(page.locator('.ai button.btn.primary', { hasText: 'Draft this chapter for me' }));
+  await waitAI();
+  await moveTo(page.locator('.thread .prose-out').first());
+  await sleep(2500);
+  await scroll(500);
+  await click(page.locator('.thread button', { hasText: 'Put this draft in the chapter' }).first());
+  await sleep(1500);
+  await moveTo(page.locator('textarea.manuscript'));
+});
 await scene('write', async () => {
   await click(nav('Write'));
   await sleep(2500);
   const ta = page.locator('textarea.manuscript');
-  await moveTo(page.locator('.ch-item').nth(1));
-  await sleep(2000);
+  await click(page.locator('.ch-item').nth(1));
+  await sleep(1500);
   await ta.evaluate((el) => { el.focus(); el.setSelectionRange(el.value.length, el.value.length); });
   await moveTo(page.locator('.editor-foot'));
   await ta.focus();
