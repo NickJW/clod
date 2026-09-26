@@ -171,7 +171,7 @@ export function Helper() {
             {msgs.map((m, i) => (
               <div key={i} className={`helper-msg ${m.from}`}>
                 {m.text.split('\n').map((line, j) => (
-                  <div key={j}>{line || ' '}</div>
+                  <div key={j}>{line ? line.split(/\*\*(.+?)\*\*/g).map((part, k) => (k % 2 ? <b key={k}>{part}</b> : part)) : ' '}</div>
                 ))}
                 {m.from === 'pip' && (m.go || m.show) && (
                   <button className="btn small" style={{ marginTop: 8 }} onClick={() => takeThere(m)}>
