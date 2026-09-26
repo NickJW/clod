@@ -19,9 +19,10 @@ import {
   type Thread,
 } from '../ai/session';
 import { getAISettings } from '../ai/provider';
-import { addItem, getState, go, patchItem, toast, useApp } from '../story/store';
+import { addItem, getState, go, patchItem, toast, updateProject, useApp } from '../story/store';
 import { newBelief, newCharacter, newClue, newEvent, newFact, newIdea, newNote, newPlace, newSecret } from '../story/factory';
 import { checkProse } from '../editor/proseCheck';
+import { recordTaste } from '../ai/context';
 import { applyReplacement, currentSelection, cursorSelection, insertText } from '../editor/bridge';
 import { diffWords } from '../editor/diff';
 import { useSpeech } from '../editor/speech';
@@ -466,6 +467,34 @@ function ExtractResult({ t, chapterId: chapterIdIn }: { t: Thread; chapterId: st
   );
 }
 
+const KEEP_REASONS = ['too flowery', 'not my voice', 'changed too much', 'lost my meaning', 'too plain', 'too many changes to check'];
+
+function WhyKept({ threadId }: { threadId: string }) {
+  const [done, setDone] = useState('');
+  if (done) return <div className="tiny muted" style={{ marginTop: 6 }}>Thanks. Your editor will remember ("{done}").</div>;
+  return (
+    <div style={{ marginTop: 8 }}>
+      <div className="tiny muted">Why? One tap teaches your editor your taste (optional):</div>
+      <div className="chips" style={{ marginTop: 4 }}>
+        {KEEP_REASONS.map((r) => (
+          <button
+            key={r}
+            className="chip"
+            style={{ minHeight: 28, padding: '2px 10px', fontSize: '0.8rem' }}
+            onClick={() => {
+              recordTaste(getState().project!.id, 'rejected', r);
+              setDone(r);
+              markHandled(threadId, -1, r);
+            }}
+          >
+            {r}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function SaveNote({ title, body }: { title: string; body: string }) {
   const [done, setDone] = useState(false);
   return (
@@ -565,6 +594,7 @@ function RevisionResult({ t }: { t: Thread }) {
           <Markdown text={t.parsed.notes} />
         </div>
       )}
+      {t.applied === 'Kept your original.' && <WhyKept threadId={t.id} />}
       {t.applied ? (
         <div className="ok-box" style={{ marginTop: 8 }}>
           {t.applied}
@@ -588,7 +618,10 @@ function RevisionResult({ t }: { t: Thread }) {
             disabled={!sel}
             onClick={() => {
               if (!sel) return;
-              if (applyReplacement(sel.chapterId, sel.start, original, revised, `Before "${t.label}"`)) markApplied(t.id, 'Accepted. Your original was kept in History.');
+              if (applyReplacement(sel.chapterId, sel.start, original, revised, `Before "${t.label}"`)) {
+                markApplied(t.id, 'Accepted. Your original was kept in History.');
+                recordTaste(getState().project!.id, 'accepted', REVISION_LEVELS.find((l) => l.id === t.input.variant)?.label ?? t.label);
+              }
               else toast('That passage has changed since you asked, so it wasn\'t replaced. Copy the suggestion instead.', 'error');
             }}
           >
@@ -782,6 +815,20 @@ function TextResult({ t, chapterId }: { t: Thread; chapterId: string }) {
             }}
           >
             Save as chapter plan
+          </button>
+        )}
+        {(id === 'pitch' || id === 'queryBuilder' || id === 'pitchComps') && (
+          <button
+            className="btn small primary"
+            disabled={!!saved}
+            onClick={() => {
+              const p = getState().project!;
+              const key = id === 'queryBuilder' ? 'query' : id === 'pitchComps' ? 'comps' : ((t.input.variant ?? 'blurb') as 'logline' | 'blurb' | 'synopsis');
+              updateProject({ publishing: { ...p.publishing, [key]: t.raw.replace(/\n\*\*Sources[\s\S]*$/, '').trim() } });
+              setSaved(`Saved to Publish → Pitch materials (${key}). Rewrite it in your own words there.`);
+            }}
+          >
+            Save to my pitch materials
           </button>
         )}
         {(id === 'develop' || id === 'developCharacter') && (

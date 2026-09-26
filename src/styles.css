@@ -112,6 +112,9 @@ p { margin: 0 0 0.8em; }
 .nav button.nav-item:hover { background: color-mix(in srgb, var(--ink) 6%, transparent); color: var(--ink); }
 .nav button.nav-item.active { background: var(--paper); color: var(--ink); box-shadow: var(--shadow); font-weight: 500; }
 .nav-item svg { width: 20px; height: 20px; flex: none; opacity: 0.8; }
+.nav-group { font-size: 0.7rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); padding: 14px 12px 4px; font-weight: 600; }
+.app.compact .nav-group { display: none; }
+.nav button.nav-item { padding-top: 8px; padding-bottom: 8px; }
 .nav-sep { height: 1px; background: var(--line); margin: 10px 8px; }
 .nav-foot { margin-top: auto; padding: 12px 10px 0; font-size: 0.82rem; color: var(--muted); }
 
@@ -428,3 +431,7 @@ details.group .inner { padding: 18px 20px 4px; }
 .guide-banner { padding: 8px 20px; }
 
 video::cue { font-size: 1.35rem; line-height: 1.4; background: rgba(20, 16, 14, 0.82); color: #fff; }
+.cork { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; }
+.cork-ch { background: var(--brass-soft); border: 1px solid color-mix(in srgb, var(--brass) 30%, transparent); border-radius: 10px; padding: 12px; cursor: grab; min-height: 150px; }
+.cork-ch.over { outline: 3px dashed var(--accent); }
+.cork-scene { background: var(--paper); border-radius: 6px; padding: 8px 10px; margin-bottom: 8px; box-shadow: var(--shadow); cursor: grab; border-left: 3px solid var(--accent); }

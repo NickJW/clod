@@ -5,6 +5,9 @@ import { backupToFolder, chooseFolder, folderSupported, getFolder } from '../ser
 import { getAISettings } from '../ai/provider';
 import { getPref, setPref } from '../storage/db';
 import { GUIDE, nextStep } from '../story/guide';
+import { forecast, progressNote } from '../editor/analysis';
+import { runQuiet } from '../ai/session';
+import { Markdown, Modal } from '../components/ui';
 import { startStep } from './Guide';
 import { openEditor } from '../ai/session';
 import { chapterNumber, countWords, dailyGoal, manuscriptWords, readingTime, timeAgo, todayWords, writingStreak } from '../story/reference';
@@ -99,6 +102,7 @@ export function Home() {
         </div>
       </div>
 
+      <Momentum />
       <BackupCard />
       {!p.isDemo && <GettingStarted />}
 
@@ -296,6 +300,93 @@ function DailyGoal() {
       <div className="progress" style={{ marginTop: 8, height: 6 }}>
         <div style={{ width: `${Math.max(2, pct)}%` }} />
       </div>
+    </div>
+  );
+}
+
+function Momentum() {
+  const p = useProject();
+  const key = `todayScene:${p.id}`;
+  const today = new Date().toDateString();
+  const cached = getPref<{ date: string; text: string } | null>(key, null);
+  const [scene, setScene] = useState(cached?.date === today ? cached.text : '');
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState('');
+  const f = forecast(p);
+  const getScene = async () => {
+    if (!getAISettings().apiKey) return toast('Connect your AI editor in Settings first.', 'error');
+    setBusy(true);
+    try {
+      const text = await runQuiet({ actionId: 'todayScene' });
+      setScene(text);
+      setPref(key, { date: today, text });
+    } catch (e) {
+      toast((e as Error).message, 'error');
+    }
+    setBusy(false);
+  };
+  return (
+    <div className="grid-2" style={{ marginBottom: 24, alignItems: 'stretch' }}>
+      <div className="card" style={{ marginTop: 0 }}>
+        <div className="eyebrow">Today's scene</div>
+        {scene ? (
+          <div style={{ marginTop: 6 }}>
+            <Markdown text={scene} />
+          </div>
+        ) : (
+          <p className="small muted" style={{ marginTop: 6 }}>One small, concrete thing to write today, picked from your outline. Small steps finish books.</p>
+        )}
+        <div className="row">
+          <button className="btn brass small" disabled={busy} onClick={getScene}>
+            <Icon name="spark" size={15} /> {busy ? 'Thinking…' : scene ? 'Suggest another' : 'What should I write today?'}
+          </button>
+          {scene && (
+            <button className="btn primary small" onClick={() => go('write')}>
+              Start writing
+            </button>
+          )}
+        </div>
+      </div>
+      <div className="card" style={{ marginTop: 0 }}>
+        <div className="eyebrow">Your pace</div>
+        <p style={{ margin: '6px 0' }}>
+          {f.perDay > 0 ? (
+            <>
+              About <b>{f.perDay.toLocaleString()} words a day</b> over the last two weeks.{' '}
+              {f.date && f.remaining > 0 && (
+                <>
+                  At this pace your first draft will be finished around <b>{f.date.toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })}</b>.
+                </>
+              )}
+            </>
+          ) : (
+            <span className="muted">Write a little on a few days and you'll see a finish date here.</span>
+          )}
+        </p>
+        <div className="row">
+          <button className="btn small" onClick={() => openEditor({ actionId: 'weeklyPlan', variant: String(f.perDay || '') }, true)}>
+            <Icon name="spark" size={15} /> Plan my week
+          </button>
+          <button className="btn small" onClick={() => setNote(progressNote(p))}>
+            Share my progress
+          </button>
+        </div>
+      </div>
+      {note && (
+        <Modal onClose={() => setNote('')}>
+          <h2>Share your progress</h2>
+          <p className="small muted">A short, spoiler-free update to send family or a writing friend. A little encouragement goes a long way.</p>
+          <textarea className="input" rows={7} value={note} onChange={(e) => setNote(e.target.value)} />
+          <div className="row end" style={{ marginTop: 12 }}>
+            <a className="btn" href={`mailto:?subject=${encodeURIComponent(`Novel update: ${p.title}`)}&body=${encodeURIComponent(note)}`}>
+              Email it
+            </a>
+            <button className="btn primary" onClick={() => navigator.clipboard?.writeText(note).then(() => toast('Copied. Paste it into a text or email.'))}>
+              Copy
+            </button>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }

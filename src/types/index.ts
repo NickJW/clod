@@ -267,6 +267,40 @@ export interface StoryBible {
   structure: string;
   povPlan: string;
   tense: string;
+  /** House style decisions (spellings, numbers, punctuation) like a copyeditor's style sheet. */
+  styleSheet: string;
+  /** Recurring images and objects to track across the book, comma-separated. */
+  motifs: string;
+}
+
+export type AgentStatus = 'researching' | 'queried' | 'requested' | 'rejected' | 'offer' | 'no response';
+
+export interface Agent {
+  id: string;
+  name: string;
+  agency: string;
+  link: string;
+  status: AgentStatus;
+  queriedOn: string;
+  notes: string;
+}
+
+export interface Publishing {
+  logline: string;
+  blurb: string;
+  synopsis: string;
+  query: string;
+  bio: string;
+  comps: string;
+  agents: Agent[];
+}
+
+export interface SeriesInfo {
+  name: string;
+  bookNumber: number;
+  previousProjectId: string;
+  arc: string;
+  seeds: string;
 }
 
 export interface Project extends Base {
@@ -298,6 +332,11 @@ export interface Project extends Base {
   places: Place[];
   research: ResearchItem[];
   notes: Note[];
+
+  publishing: Publishing;
+  series: SeriesInfo;
+  /** Saved results of whole-book analyses (page-turner chart, solvability test…). */
+  lab: Record<string, { at: number; data: unknown }>;
 }
 
 export type CollectionKey =

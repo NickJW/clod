@@ -14,13 +14,17 @@ import { Timeline } from './pages/Timeline';
 import { Scenes } from './pages/Scenes';
 import { Ending } from './pages/Ending';
 import { Research } from './pages/Research';
+import { Lab } from './pages/Lab';
+import { Polish } from './pages/Polish';
+import { Publish } from './pages/Publish';
+import { Series } from './pages/Series';
 import { Settings, applyAppearance } from './pages/Settings';
 import { manuscriptWords } from './story/reference';
 
-const NAV: { page: Page; label: string; icon: string; hint: string }[] = [
+const NAV: { page: Page; label: string; icon: string; hint: string; group?: string }[] = [
   { page: 'home', label: 'Home', icon: 'home', hint: 'Your novel at a glance' },
   { page: 'guide', label: 'Guide', icon: 'compass', hint: 'Step-by-step: how to use the studio to write your book' },
-  { page: 'write', label: 'Write', icon: 'write', hint: 'Your chapters' },
+  { page: 'write', label: 'Write', icon: 'write', hint: 'Your chapters', group: 'Write your book' },
   { page: 'story', label: 'Story Bible', icon: 'story', hint: 'Premise, tone and decisions' },
   { page: 'characters', label: 'Characters', icon: 'characters', hint: 'People and relationships' },
   { page: 'mystery', label: 'Mystery', icon: 'mystery', hint: 'Clues, secrets, twists' },
@@ -28,6 +32,10 @@ const NAV: { page: Page; label: string; icon: string; hint: string }[] = [
   { page: 'scenes', label: 'Scenes & Outline', icon: 'scenes', hint: 'Plan chapters and scenes' },
   { page: 'ending', label: 'Ending', icon: 'ending', hint: 'How it all resolves' },
   { page: 'research', label: 'Research & Notes', icon: 'research', hint: 'Places, facts, notes' },
+  { page: 'lab', label: 'Story Lab', icon: 'spark', hint: 'Make it gripping: page-turner charts, solvability, stress tests', group: 'Make it great' },
+  { page: 'polish', label: 'Polish', icon: 'check', hint: 'Health report, style sheet, proofreading' },
+  { page: 'publish', label: 'Publish', icon: 'upload', hint: 'Market, pitch, agents, submissions', group: 'Get it published' },
+  { page: 'series', label: 'Series', icon: 'book', hint: 'Series potential and sequels' },
 ];
 
 export default function App() {
@@ -66,12 +74,17 @@ export default function App() {
               {words.toLocaleString()} words{project.isDemo ? ' · demo' : ''}
             </div>
           </div>
-          {NAV.map((n) => (
+          {NAV.map((n) => [
+            n.group && (
+              <div key={`g-${n.group}`} className="nav-group">
+                {n.group}
+              </div>
+            ),
             <button key={n.page} className={`nav-item${page === n.page ? ' active' : ''}`} onClick={() => go(n.page)} title={n.hint}>
               <Icon name={n.icon} />
               <span className="lbl">{n.label}</span>
-            </button>
-          ))}
+            </button>,
+          ])}
           <div className="nav-sep" />
           <button className={`nav-item${page === 'settings' ? ' active' : ''}`} onClick={() => go('settings')} title="AI, appearance, backups, export">
             <Icon name="settings" />
@@ -92,6 +105,10 @@ export default function App() {
         {page === 'scenes' && <Scenes />}
         {page === 'ending' && <Ending />}
         {page === 'research' && <Research />}
+        {page === 'lab' && <Lab />}
+        {page === 'polish' && <Polish />}
+        {page === 'publish' && <Publish />}
+        {page === 'series' && <Series />}
         {page === 'settings' && <Settings />}
       </main>
       {!focus && <AIPanel />}

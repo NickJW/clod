@@ -7,6 +7,7 @@ import { chapterNumber, characterName, countWords, manuscriptWords, readingTime,
 import { registerEditor, setPendingJump, takePendingJump } from '../editor/bridge';
 import { maybeSummarize, openEditor, runQuiet } from '../ai/session';
 import { useSpeech } from '../editor/speech';
+import { readAloudSupported, useReadAloud } from '../editor/readAloud';
 import { checkProse } from '../editor/proseCheck';
 import { diffWords } from '../editor/diff';
 import { AIError, getAISettings } from '../ai/provider';
@@ -240,6 +241,15 @@ function ChapterEditor({ p, ch, onRead }: { p: Project; ch: Chapter; onRead: () 
     return () => registerEditor(null);
   });
 
+  const reader = useReadAloud((start, end) => {
+    const el = ta.current;
+    if (!el) return;
+    el.focus({ preventScroll: true });
+    el.setSelectionRange(start, end);
+    const top = el.getBoundingClientRect().top + window.scrollY + caretTop(el, start);
+    if (Math.abs(top - (window.scrollY + window.innerHeight / 2)) > window.innerHeight / 3) window.scrollTo({ top: top - window.innerHeight / 2.5, behavior: 'smooth' });
+  });
+
   const speech = useSpeech((phrase) => {
     const el = ta.current;
     if (!el) return;
@@ -335,6 +345,20 @@ function ChapterEditor({ p, ch, onRead }: { p: Project; ch: Chapter; onRead: () 
           <button className={`btn ghost small${find ? ' on' : ''}`} onClick={() => setFind(!find)} title="Find and replace">
             <Icon name="search" size={16} /> Find
           </button>
+          {readAloudSupported && (
+            <button
+              className={`btn ghost small${reader.state !== 'idle' ? ' on' : ''}`}
+              title="Hear your chapter read aloud. It starts at your cursor, or at the beginning."
+              onClick={() => {
+                if (reader.state !== 'idle') return reader.stop();
+                const el = ta.current;
+                const from = el && el.selectionStart < el.value.length - 20 ? el.selectionStart : 0;
+                reader.play(text, from);
+              }}
+            >
+              {reader.state !== 'idle' ? '■ Stop' : '▶ Listen'}
+            </button>
+          )}
           <button className={`btn ghost small${speech.listening ? ' on' : ''}`} onClick={speech.toggle} title='Dictate. Say "full stop", "comma" or "new paragraph" for punctuation.'>
             <Icon name="mic" size={16} /> {speech.listening ? 'Stop' : 'Talk'}
           </button>
@@ -367,6 +391,23 @@ function ChapterEditor({ p, ch, onRead }: { p: Project; ch: Chapter; onRead: () 
         </div>
       )}
       {speech.error && <div className="findbar" style={{ color: 'var(--danger)' }}>{speech.error}</div>}
+      {reader.state !== 'idle' && (
+        <div className="findbar">
+          <span className="pill accent">Reading aloud</span>
+          <span className="small muted">Listen for sentences that trip, repeat, or run too long.</span>
+          <span className="spacer" />
+          {reader.state === 'playing' ? (
+            <button className="btn small" onClick={reader.pause}>Pause</button>
+          ) : (
+            <button className="btn small" onClick={reader.resume}>Resume</button>
+          )}
+          <label className="row small" style={{ gap: 6 }}>
+            Speed
+            <input type="range" min={0.7} max={1.3} step={0.05} value={reader.rate} onChange={(e) => reader.setRate(+e.target.value)} />
+          </label>
+          <button className="btn small" onClick={reader.stop}>Stop</button>
+        </div>
+      )}
 
       <div className="editor-scroll" onClick={() => setSelBar(null)}>
         <div className={`sheet${focus ? ' plain' : ''}`}>

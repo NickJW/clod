@@ -381,10 +381,17 @@ export function Toasts() {
 // ---------- Minimal markdown (headings, bullets, bold, italics). Renders as React nodes, never raw HTML. ----------
 
 function inline(s: string): ReactNode[] {
-  const parts = s.split(/(\*\*[^*]+\*\*|\*[^*\s][^*]*\*|_[^_\s][^_]*_)/g).filter(Boolean);
-  return parts.map((p, i) =>
-    p.startsWith('**') ? <strong key={i}>{p.slice(2, -2)}</strong> : /^[*_].+[*_]$/.test(p) ? <em key={i}>{p.slice(1, -1)}</em> : <span key={i}>{p}</span>,
-  );
+  const parts = s.split(/(\[[^\]]+\]\(https?:\/\/[^)\s]+\)|\*\*[^*]+\*\*|\*[^*\s][^*]*\*|_[^_\s][^_]*_)/g).filter(Boolean);
+  return parts.map((p, i) => {
+    const link = p.match(/^\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)$/);
+    if (link)
+      return (
+        <a key={i} href={link[2]} target="_blank" rel="noreferrer noopener">
+          {link[1]}
+        </a>
+      );
+    return p.startsWith('**') ? <strong key={i}>{p.slice(2, -2)}</strong> : /^[*_].+[*_]$/.test(p) ? <em key={i}>{p.slice(1, -1)}</em> : <span key={i}>{p}</span>;
+  });
 }
 
 export function Markdown({ text }: { text: string }) {

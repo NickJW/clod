@@ -4,6 +4,7 @@
 // and chapter summaries.
 import type { CanonStatus, Character, Project, Tone } from '../types';
 import { CHARACTER_GROUPS, chapterLabel, characterName, charactersMentioned, countWords } from '../story/reference';
+import { getPref, setPref } from '../storage/db';
 
 export type Scope = 'local' | 'mystery' | 'whole' | 'minimal';
 
@@ -89,6 +90,9 @@ export function buildContext(p: Project, focus: Focus): string {
       (t.styleWords ? `\nDesired feel: ${t.styleWords}` : '') +
       (t.avoid ? `\nThe author never wants: ${t.avoid}` : ''),
   );
+  if (b.styleSheet?.trim()) out.push(`## House style sheet (follow it)\n${clip(b.styleSheet, 800)}`);
+  const taste = tasteSummary(p.id);
+  if (taste) out.push(`## What the author has taught her editor about her taste\n${taste}`);
 
   if (minimal) return out.join('\n\n');
 
@@ -317,6 +321,24 @@ function voiceSample(p: Project, currentId?: string): string {
     out += (out ? '\n\n' : '') + para;
   }
   return out || paras[0]?.slice(0, 2200) || '';
+}
+
+/** Learned from her reactions to suggested edits (see "Keep mine → why?"). */
+export function tasteSummary(projectId: string): string {
+  const t = getPref<{ rejected: Record<string, number>; accepted: Record<string, number> }>(`taste:${projectId}`, { rejected: {}, accepted: {} });
+  const rej = Object.entries(t.rejected).filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1]);
+  const acc = Object.entries(t.accepted).filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1]);
+  const lines: string[] = [];
+  if (rej.length) lines.push(`She has turned down suggested edits for being: ${rej.map(([k, n]) => `${k} (${n}×)`).join(', ')}. Avoid these tendencies.`);
+  if (acc.length) lines.push(`Edit styles she usually accepts: ${acc.slice(0, 5).map(([k, n]) => `${k} (${n}×)`).join(', ')}.`);
+  return lines.join('\n');
+}
+
+export function recordTaste(projectId: string, kind: 'rejected' | 'accepted', key: string) {
+  const k = `taste:${projectId}`;
+  const t = getPref<{ rejected: Record<string, number>; accepted: Record<string, number> }>(k, { rejected: {}, accepted: {} });
+  t[kind][key] = (t[kind][key] ?? 0) + 1;
+  setPref(k, t);
 }
 
 export function eventWhen(e: { dateKind: string; date: string; time: string; approxLabel: string }): string {

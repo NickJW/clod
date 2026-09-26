@@ -23,6 +23,10 @@ export interface AIRequest {
   creativity: number;
   /** Use the faster, cheaper model (summaries and small jobs). */
   fast?: boolean;
+  /** Let the model use web search (Gemini's Google Search) for real, current facts. */
+  search?: boolean;
+  /** The answer must be JSON (providers that support it enforce valid JSON). */
+  json?: boolean;
   signal?: AbortSignal;
   onText?: (fullTextSoFar: string) => void;
 }

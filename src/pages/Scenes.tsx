@@ -52,6 +52,25 @@ export function Scenes() {
   const [scene, setScene] = useState<string | null>(null);
   const ch = p.chapters.find((c) => c.id === open) ?? p.chapters[0];
   const sc = p.scenes.find((s) => s.id === scene);
+  const [view, setView] = useState<'plan' | 'cork'>('plan');
+
+  if (view === 'cork')
+    return (
+      <div className="page">
+        <div className="page-head">
+          <div>
+            <div className="eyebrow">Scenes & Outline</div>
+            <h1>Corkboard</h1>
+            <p className="lead">Your book as index cards. Drag a chapter to move it, or drag a scene card into another chapter. Click a scene to edit it.</p>
+          </div>
+          <button className="btn" onClick={() => setView('plan')}>
+            ← Back to planning
+          </button>
+        </div>
+        <Corkboard onScene={setScene} />
+        {sc && <SceneEditor s={sc} onClose={() => setScene(null)} />}
+      </div>
+    );
 
   return (
     <div className="page">
@@ -62,6 +81,9 @@ export function Scenes() {
           <p className="lead">Answer a few simple questions for each chapter. You don't need any writing theory. Your editor can turn your answers into a plan.</p>
         </div>
         <div className="row">
+          <button className="btn" onClick={() => setView('cork')}>
+            Corkboard view
+          </button>
           <UpdateSummaries />
           <AskButton action="pacing" label="Check my pacing" run />
         </div>
@@ -267,5 +289,84 @@ function SceneEditor({ s, onClose }: { s: Scene; onClose: () => void }) {
         </button>
       </div>
     </Modal>
+  );
+}
+
+function Corkboard({ onScene }: { onScene: (id: string) => void }) {
+  const p = useProject();
+  const [over, setOver] = useState('');
+  const moveChapter = (id: string, beforeId: string) => {
+    if (id === beforeId) return;
+    const list = p.chapters.filter((c) => c.id !== id);
+    const moving = p.chapters.find((c) => c.id === id)!;
+    const at = beforeId ? list.findIndex((c) => c.id === beforeId) : list.length;
+    list.splice(at < 0 ? list.length : at, 0, moving);
+    updateProject({ chapters: list });
+  };
+  const moveScene = (id: string, chapterId: string, beforeId: string) => {
+    const moving = p.scenes.find((x) => x.id === id);
+    if (!moving || id === beforeId) return;
+    const inCh = p.scenes.filter((x) => x.chapterId === chapterId && x.id !== id).sort((a, b) => a.order - b.order);
+    const at = beforeId ? inCh.findIndex((x) => x.id === beforeId) : inCh.length;
+    inCh.splice(at < 0 ? inCh.length : at, 0, { ...moving, chapterId });
+    const orders = new Map(inCh.map((x, i) => [x.id, i + 1]));
+    updateProject({ scenes: p.scenes.map((x) => (orders.has(x.id) ? { ...x, chapterId: x.id === id ? chapterId : x.chapterId, order: orders.get(x.id)! } : x)) });
+  };
+  const onDrop = (e: React.DragEvent, chapterId: string, beforeScene = '') => {
+    e.preventDefault();
+    e.stopPropagation();
+    setOver('');
+    const [kind, id] = e.dataTransfer.getData('text/plain').split(':');
+    if (kind === 'chapter') moveChapter(id, chapterId);
+    if (kind === 'scene') moveScene(id, chapterId, beforeScene);
+  };
+  return (
+    <div className="cork">
+      {p.chapters.map((c, i) => {
+        const scenes = p.scenes.filter((x) => x.chapterId === c.id).sort((a, b) => a.order - b.order);
+        return (
+          <div
+            key={c.id}
+            className={`cork-ch${over === c.id ? ' over' : ''}`}
+            draggable
+            onDragStart={(e) => e.dataTransfer.setData('text/plain', `chapter:${c.id}`)}
+            onDragOver={(e) => (e.preventDefault(), setOver(c.id))}
+            onDragLeave={() => setOver('')}
+            onDrop={(e) => onDrop(e, c.id)}
+          >
+            <div className="tiny muted">CHAPTER {i + 1} · {countWords(c.text).toLocaleString()} words</div>
+            <div className="serif" style={{ fontSize: '1.15rem', lineHeight: 1.2 }}>{c.title}</div>
+            <div className="small muted" style={{ margin: '4px 0 8px' }}>{(c.summary || c.outline.happens || '').slice(0, 120)}</div>
+            {scenes.map((x) => (
+              <div
+                key={x.id}
+                className="cork-scene"
+                draggable
+                onDragStart={(e) => {
+                  e.stopPropagation();
+                  e.dataTransfer.setData('text/plain', `scene:${x.id}`);
+                }}
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={(e) => onDrop(e, c.id, x.id)}
+                onClick={() => onScene(x.id)}
+              >
+                <b className="small">{x.title}</b>
+                <div className="tiny muted">{[characterName(p, x.povCharacterId), x.location].filter(Boolean).join(' · ')}</div>
+              </div>
+            ))}
+            <button
+              className="btn ghost small"
+              onClick={() => {
+                const s = newScene(c.id, { order: scenes.length + 1, povCharacterId: c.povCharacterId });
+                addItem('scenes', s);
+                onScene(s.id);
+              }}
+            >
+              <Icon name="plus" size={14} /> Scene
+            </button>
+          </div>
+        );
+      })}
+    </div>
   );
 }

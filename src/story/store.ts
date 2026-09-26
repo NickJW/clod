@@ -19,6 +19,10 @@ export type Page =
   | 'scenes'
   | 'ending'
   | 'research'
+  | 'lab'
+  | 'polish'
+  | 'publish'
+  | 'series'
   | 'settings';
 
 export interface Toast {

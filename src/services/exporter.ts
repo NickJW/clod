@@ -295,3 +295,80 @@ export function splitChapters(text: string, fallbackTitle: string): { title: str
 }
 
 export const newId = uid;
+
+// ---------- Submission package & reader packet ----------
+
+export interface SubmissionOptions {
+  chapters: number;
+  spacing: 'double' | '1.5';
+  font: 'Times New Roman' | 'Courier New' | 'Arial';
+  includeQuery: boolean;
+  includeSynopsis: boolean;
+}
+
+/** Query letter, synopsis and the opening chapters, each formatted as agents expect. */
+export async function exportSubmissionPackage(p: Project, o: SubmissionOptions) {
+  const { AlignmentType, Document, Header, Packer, PageNumber, Paragraph, TextRun } = await import('docx');
+  const size = 24;
+  const line = o.spacing === 'double' ? 480 : 360;
+  const surname = p.author.trim().split(/\s+/).pop() || 'Author';
+  const runs = (text: string) =>
+    text
+      .split(/(\*[^*\n]+\*)/g)
+      .filter(Boolean)
+      .map((part) => (/^\*[^*]+\*$/.test(part) ? new TextRun({ text: part.slice(1, -1), font: o.font, size, italics: true }) : new TextRun({ text: part, font: o.font, size })));
+  const plain = (t: string, spacing = 240) => paragraphs(t).map((x) => new Paragraph({ children: runs(x), spacing: { line: spacing, after: 200 } }));
+  const heading = (t: string) => new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 360 }, children: [new TextRun({ text: t, font: o.font, size, bold: true })] });
+  const header = () =>
+    new Header({ children: [new Paragraph({ alignment: AlignmentType.RIGHT, children: [new TextRun({ font: o.font, size, children: [`${surname} / ${p.title.toUpperCase()} / `, PageNumber.CURRENT] })] })] });
+  const sections: object[] = [];
+  if (o.includeQuery && p.publishing.query.trim()) sections.push({ children: [heading('QUERY LETTER'), ...plain(p.publishing.query)] });
+  if (o.includeSynopsis && p.publishing.synopsis.trim()) sections.push({ headers: { default: header() }, children: [heading(`${p.title.toUpperCase()}: SYNOPSIS`), ...plain(p.publishing.synopsis, line)] });
+  p.chapters.slice(0, o.chapters).forEach((c, i) =>
+    sections.push({
+      properties: { page: { margin: { top: 1440, bottom: 1440, left: 1440, right: 1440 } } },
+      headers: { default: header() },
+      children: [
+        ...Array.from({ length: 5 }, () => new Paragraph({ children: [] })),
+        new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: `Chapter ${i + 1}`, font: o.font, size })] }),
+        ...(c.title ? [new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 480 }, children: [new TextRun({ text: c.title, font: o.font, size })] })] : []),
+        ...paragraphs(c.text).map((t, k) =>
+          /^(#|\*|\* \* \*|\*\*\*)$/.test(t)
+            ? new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: '#', font: o.font, size })] })
+            : new Paragraph({ children: runs(t), indent: k === 0 ? undefined : { firstLine: 720 }, spacing: { line } }),
+        ),
+      ],
+    }),
+  );
+  download(`${safe(p.title)} - submission ${today()}.docx`, await Packer.toBlob(new Document({ sections: sections as never })));
+}
+
+/** Chapters for a human beta reader, with questions to answer at the end. */
+export async function exportReaderPacket(p: Project, chapterIds: string[], questions: string) {
+  const { AlignmentType, Document, Packer, Paragraph, TextRun, HeadingLevel } = await import('docx');
+  const children: InstanceType<typeof Paragraph>[] = [
+    new Paragraph({ heading: HeadingLevel.TITLE, children: [new TextRun(p.title)] }),
+    new Paragraph({ children: [new TextRun({ text: 'Thank you for reading! Please read as you normally would, and note anything that confuses, bores or excites you. The questions are at the end.', italics: true })] }),
+  ];
+  p.chapters
+    .filter((c) => chapterIds.includes(c.id))
+    .forEach((c) => {
+      const i = p.chapters.indexOf(c);
+      children.push(new Paragraph({ heading: HeadingLevel.HEADING_1, pageBreakBefore: true, alignment: AlignmentType.CENTER, children: [new TextRun(`Chapter ${i + 1}${c.title ? `: ${c.title}` : ''}`)] }));
+      paragraphs(c.text).forEach((t) =>
+        children.push(new Paragraph({ spacing: { line: 360 }, children: t.split(/(\*[^*\n]+\*)/g).filter(Boolean).map((x) => (/^\*[^*]+\*$/.test(x) ? new TextRun({ text: x.slice(1, -1), italics: true }) : new TextRun(x))) })),
+      );
+    });
+  children.push(new Paragraph({ heading: HeadingLevel.HEADING_1, pageBreakBefore: true, children: [new TextRun('Questions for you')] }));
+  questions
+    .split('\n')
+    .filter((q) => q.trim())
+    .forEach((q) => children.push(new Paragraph({ spacing: { after: 600 }, children: [new TextRun({ text: q.trim(), bold: true })] })));
+  download(`${safe(p.title)} - for readers ${today()}.docx`, await Packer.toBlob(new Document({ sections: [{ children }] })));
+}
+
+export function downloadBlob(name: string, blob: Blob) {
+  download(name, blob);
+}
+
+export const safeName = safe;

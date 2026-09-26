@@ -141,6 +141,8 @@ function prepare(input: JobInput): { built: Built; system: string; context: stri
     characterIds: built.characterIds ?? (input.characterId ? [input.characterId] : []),
     voice: built.role === 'prose' && (built.output === 'prose' || built.output === 'revision'),
   });
+  if (built.search && getAISettings().providerId !== 'gemini')
+    built.user += '\n\nYou cannot browse the web for this answer. Answer from your own knowledge, add "(verify)" after every specific book, person or organisation you name, and leave out anything you are not confident exists.';
   if (input.avoid) built.user += `\n\nIMPORTANT: a previous draft of this used these weak patterns. Avoid them completely this time:\n${input.avoid}`;
   return { built, system, context };
 }
@@ -200,6 +202,8 @@ export async function run(input: JobInput): Promise<void> {
         maxTokens: built.maxTokens,
         creativity: built.output === 'prose' || built.output === 'options' ? settings.creativity : Math.min(settings.creativity, 0.5),
         fast: built.fast,
+        search: built.search,
+        json: built.json ?? ['options', 'findings', 'extract'].includes(built.output),
         signal: ctrl.signal,
         onText: (t) => patchThread(id, { streaming: t }),
       },
@@ -233,7 +237,7 @@ export async function runQuiet(input: JobInput): Promise<string> {
   const { built, system, context } = prepare(input);
   const settings = getAISettings();
   const res = await getProvider(settings.providerId).complete(
-    { system, context, messages: [{ role: 'user', content: built.user }], maxTokens: built.maxTokens, creativity: 0.3, fast: built.fast },
+    { system, context, messages: [{ role: 'user', content: built.user }], maxTokens: built.maxTokens, creativity: 0.3, fast: built.fast, search: built.search, json: built.json },
     settings,
   );
   recordUsage(res.usage);
@@ -323,18 +327,42 @@ function errorThread(id: string, input: JobInput, label: string, e: unknown): Th
 
 // ---------- Parsing (tolerant: a malformed answer still shows as text) ----------
 
-function extractJson(text: string): unknown {
+export function extractJson(text: string): unknown {
   const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/);
-  const candidates = [fence?.[1], text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1)];
+  const start = text.indexOf('{');
+  const candidates = [fence?.[1], text.slice(start, text.lastIndexOf('}') + 1), start >= 0 ? text.slice(start) : ''];
   for (const c of candidates) {
     if (!c) continue;
-    try {
-      return JSON.parse(c);
-    } catch {
-      /* try the next candidate */
+    for (const attempt of [c, repairJson(c)]) {
+      try {
+        return JSON.parse(attempt);
+      } catch {
+        /* try the next candidate */
+      }
     }
   }
   return null;
+}
+
+/** Fix common slips: trailing commas, smart quotes, and an answer cut off before its closing brackets. */
+function repairJson(s: string): string {
+  let t = s.replace(/[“”]/g, '"').replace(/,\s*([}\]])/g, '$1').trim();
+  // Close anything left open (answers cut short by length limits).
+  const stack: string[] = [];
+  let inStr = false;
+  for (let i = 0; i < t.length; i++) {
+    const ch = t[i];
+    if (inStr) {
+      if (ch === '\\') i++;
+      else if (ch === '"') inStr = false;
+    } else if (ch === '"') inStr = true;
+    else if (ch === '{') stack.push('}');
+    else if (ch === '[') stack.push(']');
+    else if (ch === '}' || ch === ']') stack.pop();
+  }
+  if (inStr) t += '"';
+  t = t.replace(/,\s*$/, '').replace(/,\s*"[^"]*"\s*:?\s*$/, '');
+  return t + stack.reverse().join('');
 }
 
 const str = (v: unknown) => (typeof v === 'string' ? v : v == null ? '' : Array.isArray(v) ? v.join('; ') : String(v));

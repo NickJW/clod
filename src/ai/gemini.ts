@@ -32,8 +32,10 @@ async function once(req: AIRequest, s: AISettings): Promise<AIResult> {
       temperature: Math.max(0, Math.min(1, req.creativity)) * 1.3,
       // Newer Gemini models "think" first and that counts toward this budget, so allow headroom.
       maxOutputTokens: Math.min(req.maxTokens + 4000, 16000),
+      ...(req.json && !req.search ? { responseMimeType: 'application/json' } : {}),
     },
     safetySettings: SAFETY,
+    ...(req.search ? { tools: [{ google_search: {} }] } : {}),
   };
 
   let res: Response;
@@ -56,6 +58,7 @@ async function once(req: AIRequest, s: AISettings): Promise<AIResult> {
   let text = '';
   let finish = '';
   let blocked = '';
+  const sources = new Map<string, string>();
   const usage = { inputTokens: 0, outputTokens: 0, cachedTokens: 0 };
   try {
     for (;;) {
@@ -82,6 +85,7 @@ async function once(req: AIRequest, s: AISettings): Promise<AIResult> {
           }
         }
         if (cand?.finishReason) finish = cand.finishReason;
+        for (const g of cand?.groundingMetadata?.groundingChunks ?? []) if (g.web?.uri) sources.set(g.web.uri, g.web.title || g.web.uri);
         if (evt.usageMetadata) {
           const cached = evt.usageMetadata.cachedContentTokenCount ?? 0;
           usage.inputTokens = (evt.usageMetadata.promptTokenCount ?? 0) - cached;
@@ -98,6 +102,7 @@ async function once(req: AIRequest, s: AISettings): Promise<AIResult> {
   if (!text && (blocked || /SAFETY|PROHIBITED|BLOCKLIST|RECITATION/.test(finish)))
     throw new AIError('Gemini declined to answer this one (its content filter can be over-cautious with dark fiction). Try rewording the request, or select a smaller passage.', 'other');
   if (!text) throw new AIError('Gemini returned an empty answer. Please try again.', 'other');
+  if (sources.size) text += `\n\n**Sources (from Google Search)**\n${[...sources].slice(0, 12).map(([u, t]) => `- [${t}](${u})`).join('\n')}`;
   return { text, usage, stoppedEarly: finish === 'MAX_TOKENS' };
 }
 
@@ -139,6 +144,15 @@ export function badGeminiDefault(id: string): boolean {
   return !id || /omni|pro|image|tts|preview/.test(id);
 }
 
+function noSearch(req: AIRequest): AIRequest {
+  if (!req.search) return req;
+  return {
+    ...req,
+    search: false,
+    system: `${req.system}\n\nWeb search is NOT available for this answer. Answer from your own knowledge, and after every specific book, person or organisation you name, add "(verify)". If you're not confident something exists, leave it out.`,
+  };
+}
+
 export const geminiProvider: AIProvider = {
   id: 'gemini',
   name: 'Google Gemini',
@@ -152,14 +166,22 @@ export const geminiProvider: AIProvider = {
     const lite = s.fastModel && s.fastModel !== main ? s.fastModel : 'gemini-flash-lite-latest';
     const models = [...new Set(req.fast ? [lite, main] : [main, lite])];
     let lastErr: unknown;
+    let search = !!req.search;
     for (const m of models) {
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
-          return await once(req, { ...s, model: m, fastModel: m });
+          const res = await once(search ? req : noSearch(req), { ...s, model: m, fastModel: m });
+          return req.search && !search ? { ...res, text: `**Note:** web search isn't available on your current Gemini plan, so this answer comes from the AI's memory. Check every title, name and link before relying on it.\n\n${res.text}` } : res;
         } catch (e) {
           lastErr = e;
           if (!(e instanceof AIError) || e.kind === 'cancelled' || e.kind === 'bad-key' || e.kind === 'too-long') throw e;
-          // A brief overload is worth one retry on the same model; anything else moves on.
+          // Web search isn't in every plan (e.g. Gemini's free tier): retry once without it, clearly flagged.
+          if (search && e.kind === 'quota') {
+            search = false;
+            attempt--;
+            continue;
+          }
+          // A brief overload is worth one retry on the same model. Anything else moves on to the lighter model.
           if ((e.kind === 'busy' || e.kind === 'network') && attempt === 0) {
             await new Promise((r) => setTimeout(r, 3000));
             continue;

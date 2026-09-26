@@ -57,6 +57,8 @@ export const emptyBible = (): StoryBible => ({
   structure: '',
   povPlan: '',
   tense: '',
+  styleSheet: '',
+  motifs: '',
 });
 
 export const defaultTone = (): Tone => ({
@@ -290,8 +292,13 @@ export function newProject(title = 'My Novel'): Project {
     places: [],
     research: [],
     notes: [],
+    publishing: emptyPublishing(),
+    series: { name: '', bookNumber: 1, previousProjectId: '', arc: '', seeds: '' },
+    lab: {},
   };
 }
+
+export const emptyPublishing = () => ({ logline: '', blurb: '', synopsis: '', query: '', bio: '', comps: '', agents: [] });
 
 const COLLECTION_DEFAULTS: Record<CollectionKey, () => object> = {
   chapters: () => newChapter(),
@@ -321,7 +328,11 @@ export function normalizeProject(raw: unknown): Project {
     tone: { ...base.tone, ...((r.tone as object) ?? {}) },
     mystery: { ...base.mystery, ...((r.mystery as object) ?? {}) },
     ending: { ...base.ending, ...((r.ending as object) ?? {}) },
+    publishing: { ...base.publishing, ...((r.publishing as object) ?? {}) },
+    series: { ...base.series, ...((r.series as object) ?? {}) },
+    lab: (r.lab as Project['lab']) ?? {},
   };
+  if (!Array.isArray(p.publishing.agents)) p.publishing.agents = [];
   for (const key of Object.keys(COLLECTION_DEFAULTS) as CollectionKey[]) {
     const list = Array.isArray(r[key]) ? (r[key] as object[]) : key === 'chapters' ? base.chapters : [];
     (p as unknown as Record<string, unknown>)[key] = list

@@ -81,6 +81,14 @@ Added in the second round:
 - Whole-book search, today's word count, a getting-started checklist, in-app dialogs instead of browser pop-ups, a tidier toolbar
 - Automatic hourly backups to a folder she picks once (Chrome/Edge), and offline support
 
+Added in the third round (aimed at a gripping, publishable book):
+- **Story Lab:** page-turner analysis (put-down risk chart, tension, chapter endings), emotional rollercoaster heat map, reader question ledger, solvability test (when simulated readers crack the mystery), reader panel (four reader types plus an agent), stress tests (the killer's counter-move, plot-hole hunter, detective plausibility, twist impact, set pieces, "would readers root for her?", chemistry, character arcs, dialogue voice test, premise and hook tests, hook amplifier, genre promise, word of mouth, alternative endings), learning from a favourite book, Opening Pages Lab (the agent's desk, first-line workshop), editorial letter
+- **Polish:** manuscript health report (length for the genre, chapter lengths, dialogue, POV balance, habit words, repeated phrases), style sheet and consistency checker, name checker, motif tracker, proofreading, voice drift, sensitivity read, permissions and legal flags, content notes
+- **Publish:** market trends, comparable titles and "X meets Y" pitches, title lab, cover brief, reader profile, pitch materials (logline, blurb, synopsis, query, bio), agent panel for the query, agent finder and submission tracker, contests, submission package (.docx), reader packet for human beta readers, feedback sorter, e-book (.epub) and store listing for self-publishing
+- **Series:** series potential, sequel seeds, new mysteries from the same world, series arc, and "Start the sequel" (a new book that inherits characters, places, relationships and a recap)
+- **Finishing:** today's scene, pace and finish-date forecast, weekly plan, shareable progress note, read-aloud, corkboard, and an editor that learns her taste from the edits she turns down
+- Tools marked "web search" use Gemini's Google Search when the plan includes it, and otherwise answer from memory with clear "verify" flags
+
 Planned / not yet built:
 - Bold/underline and other rich formatting
 - A native desktop installer (the browser's *Install app* works today)
