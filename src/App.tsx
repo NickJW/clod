@@ -43,6 +43,7 @@ export default function App() {
   const project = useApp((s) => s.project);
   const page = useApp((s) => s.page);
   const focus = useApp((s) => s.focusMode);
+  const otherWindow = useApp((s) => s.otherWindow);
 
   useEffect(() => applyAppearance(), []);
 
@@ -94,6 +95,12 @@ export default function App() {
         </nav>
       )}
       <main className="main">
+        {otherWindow && (
+          <div className="guide-banner" style={{ background: 'var(--del)', color: 'var(--del-ink)' }}>
+            <b>Nightjar is also open in another window or tab.</b>
+            <span className="small">To avoid losing work, close the other one and keep writing here. Changes in two windows can overwrite each other.</span>
+          </div>
+        )}
         {!focus && <GuideBanner />}
         {page === 'home' && <Home />}
         {page === 'guide' && <Guide />}

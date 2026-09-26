@@ -194,7 +194,7 @@ export function saveChapterVersion(chapterId: string, label: string): void {
   const ch = p?.chapters.find((c) => c.id === chapterId);
   if (!ch || !ch.text.trim()) return;
   if (ch.versions[0]?.text === ch.text) return;
-  const versions = [{ id: uid(), at: Date.now(), label, text: ch.text }, ...ch.versions].slice(0, 40);
+  const versions = [{ id: uid(), at: Date.now(), label, text: ch.text }, ...ch.versions].slice(0, 25);
   patchItem('chapters', chapterId, { versions } as Partial<Chapter>);
 }
 

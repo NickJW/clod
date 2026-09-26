@@ -1,7 +1,7 @@
 // The writing room: chapter list, a quiet manuscript page, and gentle tools.
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Chapter, ChapterStatus, Project } from '../types';
-import { addItem, getState, moveItem, patchItem, removeItem, setState, updateProject, useApp, useProject } from '../story/store';
+import { addItem, getState, moveItem, patchItem, registerFlushHook, removeItem, setState, updateProject, useApp, useProject } from '../story/store';
 import { newChapter, uid } from '../story/factory';
 import { chapterNumber, characterName, countWords, manuscriptWords, readingTime, saveChapterVersion, timeAgo, escapeRe, todayWords } from '../story/reference';
 import { registerEditor, setPendingJump, takePendingJump } from '../editor/bridge';
@@ -166,6 +166,9 @@ function ChapterEditor({ p, ch, onRead }: { p: Project; ch: Chapter; onRead: () 
     },
     [commit, ch.id],
   );
+
+  // Every save (including when the window closes) first takes the newest keystrokes.
+  useEffect(() => registerFlushHook(() => ta.current && commit(ta.current.value)), [commit]);
 
   // Arriving from a whole-book search result: jump to it.
   useEffect(() => {

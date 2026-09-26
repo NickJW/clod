@@ -184,6 +184,34 @@ function previousSummaries(p: Project, idx: number): string {
   return prev.length ? `What happened before:\n${prev.join('\n')}` : '';
 }
 
+/** Pre-scan the whole book locally for passages that could need permission, so long books fit in one request. */
+function permissionCandidates(p: Project): string {
+  const out: string[] = [];
+  let size = 0;
+  const known = new Set(p.characters.flatMap((c) => c.name.split(/\s+/)));
+  p.chapters.forEach((c, n) => {
+    const paras = c.text.split(/\n\s*\n/);
+    paras.forEach((para, k) => {
+      const t = para.trim();
+      if (!t) return;
+      const lines = t.split('\n');
+      const verse = lines.length >= 3 && lines.every((l) => l.trim().split(/\s+/).length <= 10);
+      const epigraph = k === 0 && t.split(/\s+/).length < 40 && /[—–-]\s*[A-Z]/.test(t);
+      const mentions = /\b(song|sang|sings|singing|lyric|lyrics|poem|poet|verse|chorus|quoted|quote|radio|album|hymn)\b/i.test(t);
+      const italics = /\*[^*\n]{20,}\*/.test(t);
+      const names = (t.match(/\b[A-Z][a-z]+(?:\s+[A-Z][a-z']+)+\b/g) ?? []).filter((m) => !m.split(/\s+/).every((w) => known.has(w)));
+      if (verse || epigraph || mentions || italics || names.length) {
+        const piece = `[Chapter ${n + 1}] ${t.slice(0, 1200)}`;
+        if (size + piece.length < 60000) {
+          out.push(piece);
+          size += piece.length;
+        }
+      }
+    });
+  });
+  return out.join('\n\n') || '(No quotations, verse, song or poem mentions, or outside names found in the manuscript.)';
+}
+
 function premiseLine(p: Project): string {
   return `"${p.title}", ${p.bible.genre}. ${p.bible.premise || p.mystery.centralQuestion || ''}`.slice(0, 900);
 }
@@ -1111,7 +1139,7 @@ export const ACTIONS: Record<ActionId, ActionDef> = {
       scope: 'minimal',
       output: 'findings',
       maxTokens: 2200,
-      user: `Scan this manuscript for publishing permission and legal risks a debut author often misses: quoted song lyrics (any length usually needs permission), quoted poems or epigraphs still in copyright, long quotations from other books, real living people, real named businesses or institutions portrayed negatively, identifiable real private individuals, and trademarks used in a disparaging way. For each, quote the text and explain the typical options (paraphrase, invent, request permission, use a public-domain source). Note: this is general information, not legal advice.\n\n<manuscript>${p.chapters.map((c, n) => `[Chapter ${n + 1}]\n${c.text}`).join('\n\n').slice(0, 60000)}</manuscript>\n\n${FORMAT.findings}`,
+      user: `Check these passages for publishing permission and legal risks a debut author often misses: quoted song lyrics (any length usually needs permission), quoted poems or epigraphs still in copyright, long quotations from other books, real living people, real named businesses or institutions portrayed negatively, identifiable real private individuals, and trademarks used in a disparaging way. The whole book was pre-scanned, and these are the only passages containing quotations, verse, italics, song or poem mentions, or capitalised names. For each risk, quote the text, give the chapter, and explain the typical options (paraphrase, invent, request permission, use a public-domain source). If nothing is risky, say so. Note: this is general information, not legal advice.\n\n<passages>${permissionCandidates(p)}</passages>\n\n${FORMAT.findings}`,
       craft: false,
     }),
   },

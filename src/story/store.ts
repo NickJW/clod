@@ -47,6 +47,8 @@ export interface AppState {
   folderNeedsPermission: boolean;
   /** The guide step being followed, if any (shows the guide bar). */
   guideStep: number | null;
+  /** The same novel is open in another window or tab. */
+  otherWindow: boolean;
 }
 
 let state: AppState = {
@@ -61,6 +63,7 @@ let state: AppState = {
   focusMode: false,
   folderNeedsPermission: false,
   guideStep: null,
+  otherWindow: false,
 };
 
 const listeners = new Set<() => void>();
@@ -92,6 +95,33 @@ export function useProject(): Project {
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
 let lastFolderTry = 0;
+let lastEmergency = 0;
+
+/** Places holding not-yet-committed text (the open editor) register here, so every save includes it. */
+const flushHooks = new Set<() => void>();
+export function registerFlushHook(fn: () => void): () => void {
+  flushHooks.add(fn);
+  return () => flushHooks.delete(fn);
+}
+function runFlushHooks() {
+  flushHooks.forEach((fn) => {
+    try {
+      fn();
+    } catch {
+      /* never let a hook stop a save */
+    }
+  });
+}
+
+/** Called when the window is hidden or closing: save synchronously what we can, then start the normal save. */
+function saveNow() {
+  runFlushHooks();
+  const p = state.project;
+  if (!p) return;
+  db.writeEmergencyCopy(p);
+  lastEmergency = Date.now();
+  void flushSave();
+}
 
 function scheduleSave() {
   if (saveTimer) clearTimeout(saveTimer);
@@ -100,6 +130,7 @@ function scheduleSave() {
 }
 
 export async function flushSave(): Promise<void> {
+  runFlushHooks();
   if (saveTimer) {
     clearTimeout(saveTimer);
     saveTimer = null;
@@ -108,7 +139,12 @@ export async function flushSave(): Promise<void> {
   if (!p) return;
   try {
     await db.saveProject(p);
-    setState({ saveState: 'saved', lastSavedAt: Date.now(), saveError: '' });
+    // Only say "Saved" if nothing changed while we were writing.
+    if (state.project === p) setState({ saveState: 'saved', lastSavedAt: Date.now(), saveError: '' });
+    if (Date.now() - lastEmergency > 60000) {
+      lastEmergency = Date.now();
+      db.writeEmergencyCopy(p);
+    }
     db.addSnapshot(p).catch(() => undefined);
     // Quiet hourly backup to the author's chosen folder, if she set one up and the browser still allows it.
     if (Date.now() - lastFolderTry > 3600e3) {
@@ -126,11 +162,33 @@ export async function flushSave(): Promise<void> {
 }
 
 window.addEventListener('beforeunload', (e) => {
-  if (state.saveState === 'saving' || state.saveState === 'error') {
-    flushSave();
-    e.preventDefault();
-  }
+  const pending = state.saveState === 'saving' || state.saveState === 'error' || saveTimer !== null;
+  saveNow();
+  if (pending) e.preventDefault();
 });
+window.addEventListener('pagehide', saveNow);
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') saveNow();
+});
+
+// ---------- Only one window per novel ----------
+// Two windows editing the same novel would overwrite each other's work, so warn clearly.
+const tabId = Math.random().toString(36).slice(2);
+const channel = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('nightjar') : null;
+channel?.addEventListener('message', (e: MessageEvent<{ type: string; projectId: string; tab: string }>) => {
+  const m = e.data;
+  const mine = state.project?.id;
+  if (!mine || m.projectId !== mine || m.tab === tabId) return;
+  if (m.type === 'open') {
+    channel.postMessage({ type: 'here', projectId: mine, tab: tabId });
+    setState({ otherWindow: true });
+  } else if (m.type === 'here') setState({ otherWindow: true });
+  else if (m.type === 'closed') setState({ otherWindow: false });
+});
+function announceOpen(projectId: string) {
+  channel?.postMessage({ type: 'open', projectId, tab: tabId });
+}
+window.addEventListener('pagehide', () => state.project && channel?.postMessage({ type: 'closed', projectId: state.project.id, tab: tabId }));
 
 // ---------- Project lifecycle ----------
 
@@ -155,22 +213,33 @@ export async function refreshProjects() {
 export async function openProject(id: string): Promise<void> {
   await flushSave();
   let raw = await db.loadProject(id);
+  const emergency = db.emergencyCopy(id);
   if (!raw) {
-    const emergency = db.emergencyCopy(id);
     if (!emergency) return;
     raw = emergency;
     toast('Recovered your novel from its emergency copy.');
+  } else if (emergency && (emergency.updatedAt ?? 0) > (raw.updatedAt ?? 0)) {
+    // The window closed before the last save finished: use the newer emergency copy, keeping chapter histories.
+    const versions = new Map(raw.chapters.map((c) => [c.id, c.versions]));
+    raw = { ...emergency, chapters: emergency.chapters.map((c) => ({ ...c, versions: versions.get(c.id) ?? [] })) };
+    toast('Recovered your latest changes.');
   }
   const project = normalizeProject(raw);
   db.setPref('lastProject', id);
-  setState({ project, page: 'home' });
+  setState({ project, page: 'home', otherWindow: false });
+  announceOpen(project.id);
+  if (raw === emergency || (emergency && raw.updatedAt === emergency.updatedAt)) void flushSave();
 }
 
 export async function createProject(p: Project): Promise<void> {
   await flushSave();
+  // A restored backup must win over any older emergency copy of the same novel.
+  p = { ...p, updatedAt: Date.now() };
   await db.saveProject(p);
+  db.writeEmergencyCopy(p);
   db.setPref('lastProject', p.id);
-  setState({ project: p, page: 'home' });
+  setState({ project: p, page: 'home', otherWindow: false });
+  announceOpen(p.id);
   await refreshProjects();
 }
 
