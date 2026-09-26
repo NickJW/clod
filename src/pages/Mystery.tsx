@@ -1,5 +1,6 @@
 // The mystery board: the hidden truth, clues and red herrings, secrets,
 // who-knows-what, what the reader knows by each chapter, and the twist workshop.
+import { YarnBoard } from './YarnBoard';
 import { useState } from 'react';
 import type { Belief, Clue, ClueKind, MysteryTruth, Project, Secret } from '../types';
 import { addItem, patchItem, removeItem, updateProject, useProject } from '../story/store';
@@ -9,7 +10,7 @@ import { openEditor } from '../ai/session';
 import { TWIST_KINDS } from '../ai/actions';
 import { AskButton, AutoTextarea, ChapterSelect, CharacterChips, CharacterSelect, Empty, Field, Icon, Modal, StatusPicker, Term } from '../components/ui';
 
-type Tab = 'truth' | 'clues' | 'suspects' | 'connect' | 'secrets' | 'knows' | 'reader' | 'twists';
+type Tab = 'truth' | 'clues' | 'suspects' | 'board' | 'connect' | 'secrets' | 'knows' | 'reader' | 'twists';
 
 export function Mystery() {
   const p = useProject();
@@ -18,6 +19,7 @@ export function Mystery() {
   const tabs: [Tab, string][] = [
     ['clues', `Clues & red herrings (${p.clues.length})`],
     ['suspects', 'Suspects'],
+    ['board', 'Yarn board'],
     ['connect', 'Connect the dots'],
     ['truth', 'The truth'],
     ['secrets', `Secrets (${p.secrets.length})`],
@@ -58,6 +60,7 @@ export function Mystery() {
       </div>
       {tab === 'truth' && <Truth />}
       {tab === 'suspects' && <Suspects />}
+      {tab === 'board' && <YarnBoard />}
       {tab === 'connect' && <ConnectDots />}
       {tab === 'clues' && <Clues />}
       {tab === 'secrets' && <Secrets />}

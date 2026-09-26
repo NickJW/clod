@@ -343,6 +343,29 @@ export interface Project extends Base {
   lab: Record<string, { at: number; data: unknown }>;
   /** Fingerprints of paragraphs that came from the AI editor, per chapter, to show what she hasn't rewritten yet. */
   aiText: Record<string, string[]>;
+  /** The yarn board: pinned cards and the red strings between them. */
+  board: Board;
+}
+
+export type PinKind = 'character' | 'clue' | 'secret' | 'event' | 'place' | 'note';
+export interface Pin {
+  id: string; // the item's id (or a note's own id)
+  kind: PinKind;
+  x: number;
+  y: number;
+  tilt: number;
+  text?: string; // notes only
+}
+export interface Yarn {
+  id: string;
+  a: string;
+  b: string;
+  label: string;
+  auto: boolean; // placed by "Pin it all up for me" (re-arranging replaces these, never hers)
+}
+export interface Board {
+  pins: Pin[];
+  strings: Yarn[];
 }
 
 export type CollectionKey =

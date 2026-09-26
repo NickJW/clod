@@ -656,3 +656,62 @@ html[data-motion='off'] .helper-panel, html[data-motion='off'] .helper-msg, html
 .pip-tuft { fill: #8f6d36; }
 .pip-feather { fill: none; stroke: #5b4222; stroke-width: 1; stroke-linecap: round; opacity: 0.6; }
 .pip-wing { transform-origin: 38px 34px; }
+
+/* ---------- Yarn board ---------- */
+.yarn-tools { display: flex; align-items: center; gap: 8px; margin: 14px 0 8px; }
+.yarn-hint { margin-top: 12px; padding: 8px 14px; border-radius: 10px; background: #fbeaea; color: #7a1f27; border: 1px solid #e8b4b8; }
+.yarn-wrap { position: relative; height: min(78vh, 820px); overflow: auto; border-radius: 14px; border: 10px solid #7a5a36; box-shadow: inset 0 0 30px rgba(60, 35, 10, 0.45), var(--shadow); cursor: grab; touch-action: none;
+  background-color: #c79d68;
+  background-image:
+    radial-gradient(rgba(90, 55, 20, 0.28) 1px, transparent 1.4px),
+    radial-gradient(rgba(255, 240, 210, 0.22) 1px, transparent 1.6px),
+    radial-gradient(rgba(110, 70, 30, 0.18) 2px, transparent 2.6px);
+  background-size: 7px 7px, 11px 11px, 23px 23px;
+  background-position: 0 0, 3px 5px, 9px 2px; }
+.yarn-wrap:active { cursor: grabbing; }
+.yarn-wrap.linking, .yarn-wrap.linking .yarn-card { cursor: crosshair; }
+.yarn-canvas { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+.yarn-svg { position: absolute; left: 0; top: 0; pointer-events: none; overflow: visible; z-index: 1; }
+.yarn-line { fill: none; stroke: #b3202a; stroke-width: 3.2; stroke-linecap: round; }
+.yarn-line.auto { stroke: #c0272f; }
+.yarn-line.sel { stroke: #e0343d; stroke-width: 5; }
+.yarn-hit { fill: none; stroke: transparent; stroke-width: 18; pointer-events: stroke; cursor: pointer; }
+.yarn-tag { position: absolute; transform: translate(-50%, -50%) rotate(-2deg); background: #fffaf0; color: #3a2a1a; font: 700 17px/1.1 'Caveat', cursive; padding: 3px 9px; border-radius: 2px; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.25); white-space: nowrap; max-width: 220px; overflow: hidden; text-overflow: ellipsis; cursor: pointer; z-index: 1; }
+.yarn-card { position: absolute; padding: 22px 12px 12px; background: #fffdf6; color: #2a211a; box-shadow: 0 4px 10px rgba(40, 25, 10, 0.35), 0 1px 0 rgba(0, 0, 0, 0.1); cursor: grab; user-select: none; touch-action: none; z-index: 2; }
+.yarn-card:hover { box-shadow: 0 8px 18px rgba(40, 25, 10, 0.4); }
+.yarn-card.dragging { cursor: grabbing; box-shadow: 0 16px 30px rgba(40, 25, 10, 0.45); z-index: 5; transition: none; }
+.yarn-card.sel { outline: 3px solid #fff3c4; outline-offset: 2px; }
+.yarn-card.from { outline: 3px dashed #b3202a; outline-offset: 3px; }
+.yarn-title { font-family: var(--serif); font-size: 1.12rem; line-height: 1.2; }
+.yarn-sub { font-size: 0.7rem; letter-spacing: 0.1em; text-transform: uppercase; color: #8a6f4d; margin-bottom: 3px; }
+.yarn-pin { position: absolute; top: -7px; left: 50%; width: 20px; height: 20px; margin-left: -10px; border-radius: 50%; border: 0; padding: 0; cursor: pointer; background: radial-gradient(circle at 35% 30%, #ff8a8a, #c3242d 55%, #7d1219); box-shadow: 0 3px 4px rgba(0, 0, 0, 0.45); z-index: 4; transition: transform 0.15s ease; }
+.yarn-pin:hover { transform: scale(1.2); }
+.yarn-card.k-character { padding: 22px 10px 10px; text-align: center; background: #fff; }
+.yarn-photo { height: 96px; margin-bottom: 8px; display: grid; place-items: center; font: 600 3rem var(--serif); color: #f3e6cc; background: linear-gradient(160deg, #6e5a48, #3d2f24); filter: sepia(0.35); }
+.yarn-card.k-character .yarn-title { font-family: 'Caveat', cursive; font-size: 1.55rem; font-weight: 700; }
+.yarn-card.k-clue { background: repeating-linear-gradient(#fffdf6 0 23px, #cfe0ee 23px 24px); border-top: 3px solid #e28b8b; }
+.yarn-card.k-event { background: #fff2a8; }
+.yarn-card.k-event .yarn-sub { color: #7a6420; }
+.yarn-card.k-secret { background: #e9dcc3; border: 1px solid #c9b48d; }
+.yarn-stamp { position: absolute; right: 8px; bottom: 8px; transform: rotate(-12deg); border: 2px solid #b3202a; color: #b3202a; font: 700 0.7rem/1 var(--ui); letter-spacing: 0.15em; text-transform: uppercase; padding: 3px 6px; opacity: 0.8; }
+.yarn-card.k-place { background: #f6e7c8; border-radius: 4px 14px 14px 4px; }
+.yarn-card.k-note { background: #fde68a; font-family: 'Caveat', cursive; }
+.yarn-card.k-note .yarn-title { font-family: 'Caveat', cursive; font-size: 1.5rem; }
+.yarn-empty { position: absolute; left: 50%; top: 35%; transform: translate(-50%, -50%) rotate(-1.5deg); background: #fffdf6; padding: 28px 40px; box-shadow: 0 6px 16px rgba(40, 25, 10, 0.35); text-align: center; color: #3a2a1a; font: 700 1.6rem 'Caveat', cursive; }
+.yarn-empty-title { font-size: 2.3rem; }
+.yarn-detail { margin-top: 12px; }
+/* Yarn: twisted fibres, drawing in, rubber band while tying */
+.yarn-fiber { fill: none; stroke: rgba(255, 205, 205, 0.5); stroke-width: 1.1; stroke-dasharray: 1.4 4.2; stroke-linecap: round; pointer-events: none; }
+.yarn-preview { fill: none; stroke: #b3202a; stroke-width: 3.2; stroke-linecap: round; opacity: 0.75; }
+.yarn-line.drawing { stroke-dasharray: var(--len); stroke-dashoffset: var(--len); animation: yarn-draw 0.75s cubic-bezier(0.3, 0.7, 0.3, 1) forwards; }
+@keyframes yarn-draw { to { stroke-dashoffset: 0; } }
+.yarn-tag.late { opacity: 0; animation: yarn-tag-in 0.35s ease-out forwards; }
+@keyframes yarn-tag-in { from { opacity: 0; transform: translate(-50%, -30%) rotate(-8deg); } to { opacity: 1; transform: translate(-50%, -50%) rotate(-2deg); } }
+.yarn-card { transition: box-shadow 0.2s ease, transform 0.45s cubic-bezier(0.34, 1.56, 0.64, 1); }
+.yarn-card.dragging { transition: box-shadow 0.2s ease, transform 0.15s ease; }
+.yarn-card.drop-in { animation: yarn-drop 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+@keyframes yarn-drop { from { opacity: 0; translate: 0 -40px; scale: 1.15; } to { opacity: 1; translate: 0 0; scale: 1; } }
+.yarn-pin:active { transform: scale(0.85); }
+.yarn-card.from .yarn-pin { animation: yarn-pin-pulse 0.9s ease-in-out infinite; }
+@keyframes yarn-pin-pulse { 50% { transform: scale(1.3); box-shadow: 0 0 0 6px rgba(179, 32, 42, 0.25), 0 3px 4px rgba(0, 0, 0, 0.45); } }
+html[data-motion='off'] .yarn-card, html[data-motion='off'] .yarn-card.drop-in, html[data-motion='off'] .yarn-card.from .yarn-pin { animation: none; transition: none; }

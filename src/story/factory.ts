@@ -298,6 +298,7 @@ export function newProject(title = 'My Novel'): Project {
     series: { name: '', bookNumber: 1, previousProjectId: '', arc: '', seeds: '' },
     lab: {},
     aiText: {},
+    board: { pins: [], strings: [] },
   };
 }
 
@@ -335,6 +336,7 @@ export function normalizeProject(raw: unknown): Project {
     series: { ...base.series, ...((r.series as object) ?? {}) },
     lab: (r.lab as Project['lab']) ?? {},
     aiText: (r.aiText as Project['aiText']) ?? {},
+    board: { pins: [], strings: [], ...((r.board as object) ?? {}) },
   };
   if (!Array.isArray(p.publishing.agents)) p.publishing.agents = [];
   for (const key of Object.keys(COLLECTION_DEFAULTS) as CollectionKey[]) {
