@@ -103,3 +103,24 @@ export function draftAudit(p: Project, draft: string): string {
   lines.push(`- Sentence rhythm: average ${check.stats.avgSentence} words, variety ${check.stats.variety}.`);
   return lines.join('\n');
 }
+
+/** Numbers a submissions screener looks at, measured locally (free, instant). */
+export function manuscriptMetrics(p: Project): string {
+  const written = p.chapters.filter((c) => c.text.trim());
+  const all = written.map((c) => c.text).join('\n\n');
+  const w = all.trim() ? all.trim().split(/\s+/).length : 0;
+  if (!w) return 'No chapters written yet.';
+  const sentences = all.split(/[.!?]+["”’)]?\s/).filter((s) => s.trim().split(/\s+/).length > 1).length || 1;
+  const syll = (all.toLowerCase().match(/[a-z]+/g) ?? []).reduce((n, x) => n + Math.max(1, (x.replace(/e$/, '').match(/[aeiouy]+/g) ?? []).length), 0);
+  const grade = Math.max(1, Math.round((0.39 * (w / sentences) + 11.8 * (syll / w) - 15.59) * 10) / 10);
+  const quoted = (all.match(/[“"][^”"]*[”"]/g) ?? []).join(' ').split(/\s+/).length;
+  const flags = checkProse(all).flags.filter((f) => ['cliche', 'filter', 'emotion', 'ominous', 'notbut', 'dash'].includes(f.kind));
+  const lens = written.map((c) => c.text.trim().split(/\s+/).length);
+  return [
+    `Words written: ${w.toLocaleString()} across ${written.length} of ${p.chapters.length} planned chapters (target ${p.targetWords.toLocaleString()} words).`,
+    `Chapter length: average ${Math.round(w / written.length).toLocaleString()} words (shortest ${Math.min(...lens).toLocaleString()}, longest ${Math.max(...lens).toLocaleString()}).`,
+    `Average sentence: ${Math.round((w / sentences) * 10) / 10} words. Reading grade level (Flesch-Kincaid): ${grade}.`,
+    `Dialogue: about ${Math.round((quoted / w) * 100)}% of words.`,
+    `Automated prose flags: ${flags.length ? flags.map((f) => f.title).join('; ') : 'none'}.`,
+  ].join('\n');
+}

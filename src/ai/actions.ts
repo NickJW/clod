@@ -5,7 +5,7 @@ import type { IdeaCategory, Project } from '../types';
 import { FORMAT, type RoleId } from './prompts';
 import type { Scope } from './context';
 import { characterName, chapterLabel, countWords } from '../story/reference';
-import { freshnessBrief, draftAudit } from '../editor/freshness';
+import { freshnessBrief, draftAudit, manuscriptMetrics } from '../editor/freshness';
 import { nearbyText } from './context';
 
 export type OutputKind = 'prose' | 'revision' | 'options' | 'findings' | 'text' | 'extract';
@@ -71,6 +71,7 @@ export type ActionId =
   | 'romanceCheck'
   | 'chapterPlan'
   | 'draftChapter'
+  | 'screening'
   | 'styleProfile'
   | 'summarize'
   | 'research'
@@ -923,7 +924,7 @@ Respond with the full revised chapter only: no title, no commentary. Keep any "E
   readerPanel: {
     id: 'readerPanel',
     label: 'Reader panel',
-    blurb: 'Four different readers react to this chapter: a crime fan, a casual reader, a literary reader, and a literary agent.',
+    blurb: 'Six readers of different ages and tastes, from a 22-year-old BookTok fan to a 68-year-old Christie devotee, react to this chapter with a keep-reading score and star rating.',
     build: (p, i) => {
       const ch = p.chapters.find((c) => c.id === (i.chapterId ?? p.currentChapterId));
       const idx = ch ? p.chapters.indexOf(ch) : 0;
@@ -931,8 +932,22 @@ Respond with the full revised chapter only: no title, no commentary. Keep any "E
         role: 'developmental',
         scope: 'minimal',
         output: 'findings',
-        maxTokens: 2500,
-        user: `Four readers have just read Chapter ${idx + 1}. They know only what's on the page.\n${previousSummaries(p, idx)}\n\nCHAPTER TEXT:\n<chapter>${ch?.text ?? ''}</chapter>\n\nReaders: (1) a devoted crime and psychological-thriller fan, (2) a casual reader who picked it up at an airport, (3) a literary-fiction reader who cares about prose and character, (4) a literary agent reading a submission. For each, give a finding whose title is "<reader>: <n>/10 would keep reading", and whose detail is their honest reaction in their own voice (what hooked them, where they drifted, what they'd tell a friend, and for the agent whether they'd request more). Level: "likely problem" if their score is under 5, "worth a look" for 5-6, otherwise "note". Summary: what the four agree on.${req(i)}\n\n${FORMAT.findings}`,
+        maxTokens: 6000,
+        user: `Six real-seeming readers from different age groups and reading habits have just read Chapter ${idx + 1}. They know only what's on the page.
+${previousSummaries(p, idx)}
+
+CHAPTER TEXT:
+<chapter>${ch?.text ?? ''}</chapter>
+
+The panel (keep each one's own voice, vocabulary and priorities):
+1. Maya, 22: finds books on BookTok, reads on her phone, loves twists, unreliable narrators and a morally grey love interest; bored fast by slow description.
+2. Jordan, 34: listens to thrillers as audiobooks on the commute; wants momentum and a clear question; notices when dialogue sounds unnatural out loud.
+3. Priya, 45: runs a book club; loves literary suspense and complicated women; wants something to discuss.
+4. Dave, 56: reads Harlan Coben and Lee Child on holiday; wants pace, stakes and a satisfying payoff; impatient with interior monologue.
+5. Linda, 68: lifelong Agatha Christie and Ann Cleeves reader, borrows from the library; plays detective, spots clues and plot holes; dislikes gratuitous violence and swearing.
+6. Rosa, 31: mainly a romance reader who picked this up for the slow-burn romance; cares about chemistry and emotional payoff.
+
+For each reader, one finding titled "<Name>, <age>: <n>/10 would keep reading · <1-5> stars", level "likely problem" for 4 or under, "worth a look" for 5-6, "note" for 7+. The detail is their honest reaction in their own voice, under 90 words: what hooked them, where they drifted (quote a few words), who they suspect now, and what they'd say to a friend about it. Put the one change that would win them over in "suggestion". The title must carry the score and stars, exactly like "Maya, 22: 3/10 would keep reading · 2 stars". Don't repeat the score, level or suggestion inside the detail. Then a final finding titled "Who this chapter wins, and who it loses" comparing the age groups and reader types, and whether the book's core audience is being served.${req(i)}\n\n${FORMAT.findings}`,
         craft: false,
       };
     },
@@ -1115,6 +1130,52 @@ Respond with the full revised chapter only: no title, no commentary. Keep any "E
         maxTokens: 2200,
         user: `The author admires this published passage and wants to learn from it (for study only, never to copy):\n<passage>${i.request ?? ''}</passage>\n\nBreak down HOW it works as craft: point of view, what's withheld, sentence rhythm, choice of concrete detail, how dialogue and silence carry subtext, and how tension builds. Name 3-5 transferable techniques. Then show how she could apply one or two of those TECHNIQUES (not the author's voice, images or phrasing) to a moment in her own current chapter:\n<chapter>${(ch?.text ?? '').slice(-3000)}</chapter>\nDo not imitate the author's style. Headings and bullets, under 550 words.`,
         craft: true,
+      };
+    },
+  },
+  screening: {
+    id: 'screening',
+    label: 'Publisher screening report',
+    blurb: 'Your book assessed the way agencies and publishers screen submissions: a scored reader\'s report, the checks their tools run, and the verdict (decline, consider, or request the full manuscript).',
+    build: (p, i) => {
+      const opening = p.chapters.map((c) => c.text).join('\n\n').slice(0, 12000);
+      const pub = p.publishing;
+      return {
+        role: 'developmental',
+        scope: 'whole',
+        output: 'findings',
+        maxTokens: 5000,
+        json: true,
+        user: `You are the first-read screening stage for submissions at a leading literary agency and a major publisher's crime and thriller list. You combine an experienced submissions reader (who writes "reader's reports") with the automated manuscript-assessment tools agencies and publishers increasingly use to triage the slush pile. Screen this book exactly as they would. Be candid and calibrated: most submissions score 4-6; reserve 8+ for work that would genuinely stand out in a crowded inbox. Never inflate to be kind. The author will use this to revise before submitting.
+
+MEASURED (computed from the manuscript):
+${manuscriptMetrics(p)}
+
+${pub.logline ? `Her logline: ${pub.logline}\n` : ''}${pub.comps ? `Her comparable titles: ${pub.comps}\n` : ''}
+OPENING PAGES (what a screener reads first, and where most submissions are decided):
+<pages>${opening}</pages>
+
+THE WHOLE BOOK (chapter summaries, with each chapter's opening and ending):
+${bookDigest(p, 150)}
+
+Score each criterion out of 10, as one finding each, titled "<criterion>: <n>/10", with level "likely problem" for 4 or under, "worth a look" for 5-6, "note" for 7+. In the detail, quote the text where useful and say what a screener would think. In the suggestion, give the single most valuable fix. Don't repeat the score, level or suggestion inside the detail. Criteria:
+1. Opening pages and hook (would a screener read past page 5?)
+2. Premise and originality (high concept? fresh against the last five years of the genre?)
+3. Genre promise (psychological thriller and mystery conventions met or cleverly subverted; fair-play clues)
+4. Voice (distinctive and consistent, or generic?)
+5. Prose at sentence level (clarity, cliché, filtering, overwriting, rhythm)
+6. Human authenticity (screening tools and readers now flag prose that reads as AI-generated or template-like: stock phrases, explained emotions, symmetrical sentences, sameness. Quote any passages at risk)
+7. Protagonist and characters (agency, want versus fear, specificity)
+8. Pacing and tension across the book
+9. Dialogue
+10. Structure and length against market norms (debut psychological thrillers usually 80,000-100,000 words; chapter lengths)
+11. Market position (two or three comparable titles from the last five years, who the core readers are, and where it would sit in a bookshop)
+12. Risk flags (anything a publisher's legal or sensitivity check would raise, borrowed lyrics or quotes, factual or continuity errors)
+
+Then one more finding titled "Verdict: " followed by exactly one of Decline, Consider, or Request full (for example "Verdict: Consider"), explaining the decision in a screener's words, and one titled "What would move this to 'request full'" with the three highest-impact revisions in order. In "summary", give the overall score out of 100 and a one-line reader's-report description of the book.${req(i)}
+
+${FORMAT.findings}`,
+        craft: false,
       };
     },
   },

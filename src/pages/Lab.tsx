@@ -10,7 +10,7 @@ import { AutoTextarea, ChapterSelect, Empty, Icon } from '../components/ui';
 import { Heat, LineChart } from '../components/Chart';
 import { timeAgo } from '../story/reference';
 
-type Tab = 'turner' | 'solve' | 'tests' | 'opening' | 'letter';
+type Tab = 'turner' | 'solve' | 'tests' | 'opening' | 'screening' | 'letter';
 
 export function Lab() {
   const [tab, setTab] = useState<Tab>('turner');
@@ -19,6 +19,7 @@ export function Lab() {
     ['solve', 'Solvability test'],
     ['tests', 'Stress tests'],
     ['opening', 'Opening pages'],
+    ['screening', 'Publisher screening'],
     ['letter', 'Editorial letter'],
   ];
   return (
@@ -41,6 +42,7 @@ export function Lab() {
       {tab === 'solve' && <Solvability />}
       {tab === 'tests' && <StressTests />}
       {tab === 'opening' && <Opening />}
+      {tab === 'screening' && <Screening />}
       {tab === 'letter' && <Letter />}
     </div>
   );
@@ -348,6 +350,30 @@ function Opening() {
         </div>
       </div>
     </>
+  );
+}
+
+function Screening() {
+  const p = useProject();
+  const written = p.chapters.filter((c) => c.text.trim()).length;
+  return (
+    <div className="card">
+      <h3>Would it get through the slush pile?</h3>
+      <p className="muted">
+        Agencies and publishers receive thousands of submissions, so they screen them fast: a reader skims the opening and writes a short scored report, and many now use software that checks length, pacing, market fit and whether prose reads as machine-written. This runs the same kind of screen on your book, with honest scores out of 10, the verdict a screener would give (decline, consider, or request the full manuscript), and the three revisions that would change it.
+      </p>
+      <p className="small muted">
+        {written} of {p.chapters.length} chapters have text. It's most useful on a complete draft, and worth re-running after each big revision. Save the report to Notes to compare later.
+      </p>
+      <div className="row">
+        <button className="btn primary" disabled={!written} onClick={() => openEditor({ actionId: 'screening' }, true)}>
+          <Icon name="spark" size={16} /> Screen my manuscript
+        </button>
+        <button className="btn" disabled={!written} onClick={() => openEditor({ actionId: 'firstPages' }, true)}>
+          The agent's desk (opening pages only)
+        </button>
+      </div>
+    </div>
   );
 }
 
