@@ -49,6 +49,8 @@ export interface AppState {
   guideStep: number | null;
   /** The same novel is open in another window or tab. */
   otherWindow: boolean;
+  /** Open onboarding straight at "Start a new novel" (e.g. leaving the example book). */
+  startNew: boolean;
 }
 
 let state: AppState = {
@@ -64,6 +66,7 @@ let state: AppState = {
   folderNeedsPermission: false,
   guideStep: null,
   otherWindow: false,
+  startNew: false,
 };
 
 const listeners = new Set<() => void>();
@@ -226,7 +229,7 @@ export async function openProject(id: string): Promise<void> {
   }
   const project = normalizeProject(raw);
   db.setPref('lastProject', id);
-  setState({ project, page: 'home', otherWindow: false });
+  setState({ project, page: 'home', otherWindow: false, startNew: false });
   announceOpen(project.id);
   if (raw === emergency || (emergency && raw.updatedAt === emergency.updatedAt)) void flushSave();
 }
@@ -238,14 +241,14 @@ export async function createProject(p: Project): Promise<void> {
   await db.saveProject(p);
   db.writeEmergencyCopy(p);
   db.setPref('lastProject', p.id);
-  setState({ project: p, page: 'home', otherWindow: false });
+  setState({ project: p, page: 'home', otherWindow: false, startNew: false });
   announceOpen(p.id);
   await refreshProjects();
 }
 
-export async function closeProject(): Promise<void> {
+export async function closeProject(startNew = false): Promise<void> {
   await flushSave();
-  setState({ project: null });
+  setState({ project: null, startNew, guideStep: null, focusMode: false });
   await refreshProjects();
 }
 

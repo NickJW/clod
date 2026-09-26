@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { go, useApp, type Page } from './story/store';
+import { closeProject, go, useApp, type Page } from './story/store';
 import { AIPanel } from './components/AIPanel';
 import { ManualHost } from './components/ManualHost';
 import { Celebrate } from './components/Celebrate';
@@ -100,6 +100,20 @@ export default function App() {
           <div className="guide-banner" style={{ background: 'var(--del)', color: 'var(--del-ink)' }}>
             <b>Nightjar is also open in another window or tab.</b>
             <span className="small">To avoid losing work, close the other one and keep writing here. Changes in two windows can overwrite each other.</span>
+          </div>
+        )}
+        {project.isDemo && !focus && (
+          <div className="demo-banner">
+            <span>
+              You're exploring the example book, <i>{project.title}</i>. Try anything: it's only practice.
+            </span>
+            <span className="spacer" />
+            <button className="btn small primary" onClick={() => void closeProject(true)}>
+              Start my own novel
+            </button>
+            <button className="btn small" onClick={() => void closeProject()}>
+              Back to my novels
+            </button>
           </div>
         )}
         {!focus && <GuideBanner />}

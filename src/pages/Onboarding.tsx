@@ -26,7 +26,8 @@ interface Answers {
 
 export function Onboarding() {
   const projects = useApp((s) => s.projects);
-  const [step, setStep] = useState(projects.length ? -1 : 0);
+  const startNew = useApp((s) => s.startNew);
+  const [step, setStep] = useState(projects.length && !startNew ? -1 : 0);
   const [a, setA] = useState<Answers>({ title: '', kinds: [], know: '', heroName: '', hero: '', mystery: '', ending: '', feel: '', chatApp: 'chatgpt', chatWhere: 'app' });
   const set = (patch: Partial<Answers>) => setA((x) => ({ ...x, ...patch }));
 
@@ -168,7 +169,7 @@ export function Onboarding() {
           )}
           <span className="spacer" />
           {step === 0 && (
-            <button className="btn" onClick={() => createProject(demoProject())} title="A finished example novel to explore">
+            <button className="btn" onClick={() => { const demo = projects.find((x) => x.isDemo); void (demo ? openProject(demo.id) : createProject(demoProject())); }} title="A finished example novel to explore">
               Explore a demo novel first
             </button>
           )}
