@@ -254,6 +254,10 @@ export interface Tone {
   description: string; // "disturbing but not gratuitous"
   styleWords: string; // "restrained, claustrophobic, literary but accessible"
   avoid: string; // things the author never wants
+  /** Authors and books she loves, and what she loves about them. */
+  influences: string;
+  /** Concrete style guide distilled from her influences and her own pages. */
+  styleProfile: string;
 }
 
 export interface StoryBible {

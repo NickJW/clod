@@ -4,7 +4,8 @@
 import type { IdeaCategory, Project } from '../types';
 import { FORMAT, type RoleId } from './prompts';
 import type { Scope } from './context';
-import { characterName, chapterLabel } from '../story/reference';
+import { characterName, chapterLabel, countWords } from '../story/reference';
+import { freshnessBrief, draftAudit } from '../editor/freshness';
 import { nearbyText } from './context';
 
 export type OutputKind = 'prose' | 'revision' | 'options' | 'findings' | 'text' | 'extract';
@@ -42,6 +43,8 @@ export interface Built {
   search?: boolean;
   /** Ask the provider for strict JSON output. */
   json?: boolean;
+  /** A second, line-editing pass over the first result (prose only; skipped for copy & paste). */
+  secondPass?: (draft: string, cutShort: boolean) => { user: string; maxTokens: number };
 }
 
 export type ActionId =
@@ -67,6 +70,8 @@ export type ActionId =
   | 'characterCheck'
   | 'romanceCheck'
   | 'chapterPlan'
+  | 'draftChapter'
+  | 'styleProfile'
   | 'summarize'
   | 'research'
   | 'shape'
@@ -602,6 +607,94 @@ export const ACTIONS: Record<ActionId, ActionDef> = {
       user: `Review the romantic thread(s): attraction, trust, chemistry, vulnerability, conflict, secrets, power dynamics, emotional dependence, betrayal, intimacy and progression across chapters. Is it changing? Does it feel like two specific people rather than genre beats? Is it overwhelming the mystery, or is the mystery pressure feeding it (proximity, danger, shared secrets, conflicting desires, restraint)? Not every interaction should be sexual tension. Respect the author's romance and explicitness settings.${req(i)}\n\n${FORMAT.findings}`,
       craft: false,
     }),
+  },
+  draftChapter: {
+    id: 'draftChapter',
+    label: 'Draft this chapter for me',
+    blurb: 'Writes a full first draft of this chapter from your plan, characters, clues and style, then line-edits it. It\'s a starting point for you to make your own.',
+    placeholder: 'Optional: anything this draft must include, or a note on how it should feel',
+    build: (p, i) => {
+      const idx = Math.max(0, p.chapters.findIndex((c) => c.id === (i.chapterId ?? p.currentChapterId)));
+      const ch = p.chapters[idx];
+      const prev = p.chapters[idx - 1];
+      const next = p.chapters[idx + 1];
+      const perChapter = p.targetWords && p.targetChapters ? p.targetWords / p.targetChapters : 3000;
+      const target = Math.round(Math.min(4500, Math.max(1800, perChapter)) / 100) * 100;
+      const existing = ch.text.trim();
+      const remaining = existing ? Math.max(800, target - countWords(existing)) : target;
+      const clues = p.clues.filter((c) => c.appearsChapterId === ch.id && c.status !== 'discarded');
+      const resolved = p.clues.filter((c) => c.resolvedChapterId === ch.id && c.status !== 'discarded');
+      const reveals = p.secrets.filter((s) => s.revealChapterId === ch.id && s.status !== 'discarded');
+      const facts = p.facts.filter((f) => f.readerLearnsChapterId === ch.id && f.status !== 'discarded');
+      const scenes = p.scenes.filter((s) => s.chapterId === ch.id);
+      const due = [
+        ...clues.map((c) => `- Plant this clue${c.kind ? ` (${c.kind})` : ''}: ${c.title}. ${c.description}${c.trueExplanation ? ` (Its innocent explanation must stay plausible: ${c.trueExplanation})` : ''} Plant it inside ordinary action so it doesn't announce itself.`),
+        ...resolved.map((c) => `- Pay off this clue: ${c.title}. ${c.description}`),
+        ...reveals.map((s) => `- This secret comes out here: ${s.title}. ${s.description}`),
+        ...facts.map((f) => `- The reader learns: ${f.text}`),
+      ];
+      const fresh = freshnessBrief(p, ch.id);
+      const plain = (t: string) => t.replace(/\s+/g, ' ').trim();
+      return {
+        role: 'prose',
+        scope: 'local',
+        output: 'prose',
+        maxTokens: Math.min(9000, Math.round(remaining * 1.7) + 800),
+        focusText: [ch.outline.happens, ch.outline.who, ch.outline.plan, ...scenes.map((s) => `${s.title} ${s.purpose} ${s.conflict}`), i.request ?? ''].join('\n'),
+        characterIds: [...new Set([ch.povCharacterId, ...scenes.flatMap((s) => [s.povCharacterId, ...s.characterIds])].filter(Boolean))],
+        user: `Write ${existing ? `the rest of ${chapterLabel(p, ch.id)}, continuing from where her text stops` : `a complete first draft of ${chapterLabel(p, ch.id)}`}, about ${remaining.toLocaleString()} words (not fewer than ${Math.round(remaining * 0.85).toLocaleString()}: give the important scenes room to breathe). Use her plan, scenes, characters and clues in the story bible above ("Chapters" has this chapter's plan and scenes). If the plan is thin, build only what the story bible supports and list the choices you had to make in an EDITOR'S NOTE.${req(i)}
+
+${due.length ? `MUST HAPPEN IN THIS CHAPTER:\n${due.join('\n')}\n\n` : ''}${prev?.text.trim() ? `The previous chapter ends like this (continue the story from here, and don't repeat its beats):\n"""${prev.text.trim().slice(-2200)}"""\n\n` : prev?.summary ? `Previous chapter: ${prev.summary}\n\n` : ''}${next && (next.outline.plan || next.outline.happens) ? `Next chapter's plan (set it up, but don't steal its events or reveals): ${plain(next.outline.plan || next.outline.happens).slice(0, 600)}\n\n` : ''}${existing ? `HER TEXT SO FAR (continue seamlessly; do not repeat or rewrite it):\n"""${existing.slice(-5000)}"""\n\n` : ''}Before writing, silently decide: the scenes (use a line with a single * between scenes), each scene's turn (what is different at its end), what the point-of-view character wants in each, what she notices that another person wouldn't, and what stays hidden. Don't output this plan.
+
+How to write it:
+- Write like a skilled human novelist, not a machine. A publisher's reader should never suspect AI. Be specific and surprising; sometimes plain; never generic.
+- Stay in her voice: match the author's sample, point of view, tense and the tone settings. Where her influences or style guide are given, take their craft qualities, not their phrasing.
+- Enter each scene late and leave early. Dramatise the important moments; summarise the connective tissue in a line or two.
+- Give every character their own way of speaking. People evade, interrupt, misunderstand and don't say what they feel. No speeches, no exposition in dialogue.
+- One precise sensory detail beats three general ones. Ground each scene in place and body.
+- Vary sentence length and paragraph length on purpose. Avoid runs of sentences that start the same way, and avoid repeating any distinctive word or image within the chapter.
+- Plant clues inside ordinary action and let red herrings stay plausible. Keep secrets secret unless listed above.
+- End on the chapter's open question or an emotional turn, not a manufactured cliffhanger or an ominous one-liner.
+- No em dashes (—): use commas, full stops or a new sentence. No "the weight of", "a beat of silence", "something shifted", "let out a breath" or any line that explains what a moment meant.
+${fresh ? `\nKEEP IT FRESH. This book already has these patterns; don't repeat them:\n${fresh}\n` : ''}
+${FORMAT.prose}`,
+        secondPass: (draft: string, cutShort: boolean) => ({
+          maxTokens: Math.min(10000, Math.round(Math.max(countWords(draft), remaining) * 1.7) + 800),
+          user: `You are now her line editor. Below is a first draft of ${chapterLabel(p, ch.id)}. Revise it into the version a demanding editor at a major publisher would sign off on, keeping every event, fact, clue and choice in it.
+
+Fix, in this order:
+1. Anything that reads as machine-written or generic: stock phrases, tidy three-part lists, "not X but Y", explained emotions or explained significance ("a small gesture that said more than…"), ominous closing lines, symmetrical sentences, over-polished sameness. Remove every em dash (—).
+2. These specific problems found in the draft:
+${draftAudit(p, draft)}
+3. Voice: bring it closer to the author's own sample (rhythm, diction, restraint). Keep it consistent across the chapter without repeating words, images or sentence shapes.
+4. Dialogue: sharpen it so each person sounds like themselves; cut lines that explain.
+5. Cut 5-10% of flab: throat-clearing, repeated beats, stage directions nobody needs.
+${fresh ? `\nAlso make sure it avoids what the book has already used:\n${fresh}\n` : ''}
+${cutShort ? `The draft was cut off before the end. After revising, finish the chapter in the same voice so it reaches about ${remaining.toLocaleString()} words in total, following her plan, and ending on the chapter's open question.` : `Keep every scene and at least the same length (about ${remaining.toLocaleString()} words is the target; if it's well short, deepen the scenes that matter rather than adding plot).`} Don't add new plot beyond her plan.
+
+DRAFT:
+"""${draft}"""
+
+Respond with the full revised chapter only: no title, no commentary. Keep any "EDITOR'S NOTE:" line from the draft at the end if it's still true.`,
+        }),
+      };
+    },
+  },
+  styleProfile: {
+    id: 'styleProfile',
+    label: 'Turn my influences into a style guide',
+    blurb: 'Reads the authors you love and your own pages, and writes a concrete style guide your editor follows in every draft.',
+    build: (p, i) => {
+      const own = p.chapters.filter((c) => countWords(c.text) > 300).sort((a, b) => countWords(b.text) - countWords(a.text))[0];
+      return {
+        role: 'prose',
+        scope: 'minimal',
+        output: 'text',
+        maxTokens: 1600,
+        user: `The author's influences (authors and books she loves, and what she loves about them):\n"""${p.tone.influences || '(none given yet)'}"""\n${own ? `\nA sample of her own prose:\n"""${own.text.trim().slice(0, 3500)}"""\n` : ''}${req(i)}\n\nWrite a practical style guide for HER book: the craft qualities to take from these influences, translated into concrete instructions a writer can follow. Don't imitate or name any author's signature phrasing; describe techniques. Cover, in short bullets under these headings: Point of view and distance; Sentences and rhythm; Description and atmosphere; Dialogue; Suspense and what to withhold; Romance and tension; Chapter openings and endings; Words and habits to avoid. Where her own sample already has a strong quality, keep it and say so; her voice wins over any influence. Under 380 words. No preamble.`,
+        craft: false,
+      };
+    },
   },
   chapterPlan: {
     id: 'chapterPlan',

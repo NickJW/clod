@@ -416,6 +416,7 @@ function ChapterEditor({ p, ch, onRead }: { p: Project; ch: Chapter; onRead: () 
           <div className="ch-no">Chapter {no}</div>
           <input className="ch-title" value={ch.title} onChange={(e) => patchItem('chapters', ch.id, { title: e.target.value })} placeholder="Chapter title" aria-label="Chapter title" />
           <Ornament />
+          {!focus && !text.trim() && <DraftOffer ch={ch} />}
           <textarea
             ref={ta}
             className="manuscript"
@@ -869,4 +870,31 @@ function Reader({ p, onClose }: { p: Project; onClose: () => void }) {
 /** Render *asterisk* italics as real italics. */
 function italicize(t: string) {
   return t.split(/(\*[^*\n]+\*)/g).map((part, i) => (/^\*[^*]+\*$/.test(part) ? <em key={i}>{part.slice(1, -1)}</em> : part));
+}
+
+/** On an empty chapter: offer a first draft built from her plan (it lands in the editor panel for review first). */
+function DraftOffer({ ch }: { ch: Chapter }) {
+  const p = useProject();
+  const planned = Object.values(ch.outline).some((v) => v.trim()) || p.scenes.some((s) => s.chapterId === ch.id);
+  return (
+    <div className="draft-offer">
+      <div>
+        <b>Want a first draft to work from?</b>
+        <div className="small muted">
+          Your editor can draft this chapter from your plan, characters, clues and style. You read it first, then shape it into your own words.
+          {!planned && ' Tip: answer a few questions for this chapter in Scenes & Outline first. The draft will be far better.'}
+        </div>
+      </div>
+      <div className="row">
+        {!planned && (
+          <button className="btn small" onClick={() => setState({ page: 'scenes' })}>
+            Plan it first
+          </button>
+        )}
+        <button className="btn brass small" onClick={() => openEditor({ actionId: 'draftChapter', chapterId: ch.id })}>
+          <Icon name="spark" size={16} /> Draft this chapter for me
+        </button>
+      </div>
+    </div>
+  );
 }

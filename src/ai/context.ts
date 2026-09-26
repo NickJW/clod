@@ -90,6 +90,11 @@ export function buildContext(p: Project, focus: Focus): string {
       (t.styleWords ? `\nDesired feel: ${t.styleWords}` : '') +
       (t.avoid ? `\nThe author never wants: ${t.avoid}` : ''),
   );
+  if (t.styleProfile?.trim()) out.push(`## Her style guide for this book (follow it in anything you write)\n${clip(t.styleProfile, 2600)}`);
+  if (t.influences?.trim() && !minimal)
+    out.push(
+      `## Books and authors she loves (influences, not templates)\n${clip(t.influences, 900)}\nTake the craft qualities she admires (pacing, atmosphere, interiority, restraint, how tension is built) and express them in HER voice. Never imitate an author's phrasing or signature style, and never mention these authors in the prose.`,
+    );
   if (b.styleSheet?.trim()) out.push(`## House style sheet (follow it)\n${clip(b.styleSheet, 800)}`);
   const taste = tasteSummary(p.id);
   if (taste) out.push(`## What the author has taught her editor about her taste\n${taste}`);

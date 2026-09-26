@@ -29,7 +29,7 @@ import { useSpeech } from '../editor/speech';
 import { setPref } from '../storage/db';
 import { Icon, Markdown } from './ui';
 import type { CanonStatus } from '../types';
-import { chapterLabel } from '../story/reference';
+import { chapterLabel, countWords } from '../story/reference';
 
 export function AIPanel() {
   const open = usePanel((s) => s.open);
@@ -218,6 +218,7 @@ function QuickStart() {
   const quick: { id: ActionId; variant?: string }[] = [
     { id: 'stuck' },
     { id: 'workOn' },
+    { id: 'draftChapter' },
     { id: 'continue' },
     { id: 'proseReview' },
     { id: 'whyNotWorking' },
@@ -238,7 +239,7 @@ function QuickStart() {
             key={q.id}
             className="btn"
             onClick={() => {
-              if (q.id === 'stuck' || q.id === 'continue') setPanel({ mode: q.id, prefill: null });
+              if (q.id === 'stuck' || q.id === 'continue' || q.id === 'draftChapter') setPanel({ mode: q.id, prefill: null });
               else void run({ actionId: q.id, selection: currentSelection(), chapterId: getState().project?.currentChapterId });
             }}
           >
@@ -278,7 +279,8 @@ function ThreadView({ t }: { t: Thread }) {
 
       {t.status === 'running' && (
         <div className="small muted typing">
-          {t.streaming ? (t.output === 'prose' || t.output === 'text' ? <Markdown text={t.streaming} /> : 'Thinking it through…') : 'Reading your story…'}
+          {t.stage && <div className="note-box" style={{ marginBottom: 8 }}>{t.stage}</div>}
+          {t.streaming ? (t.output === 'prose' || t.output === 'text' ? <Markdown text={t.streaming} /> : 'Thinking it through…') : t.stage ? null : t.input.actionId === 'draftChapter' ? 'Reading your plan, characters and clues, then writing. A whole chapter takes a minute or two…' : 'Reading your story…'}
         </div>
       )}
       {t.status === 'error' && (
@@ -523,8 +525,14 @@ function ProseResult({ t, chapterId }: { t: Thread; chapterId: string }) {
   const p = useApp((s) => s.project)!;
   const page = useApp((s) => s.page);
   const prose = t.parsed?.prose ?? t.raw;
+  const draft = t.input.actionId === 'draftChapter';
   return (
     <>
+      {draft && (
+        <div className="note-box" style={{ marginBottom: 8 }}>
+          A first draft ({countWords(prose).toLocaleString()} words), already line-edited once. It's raw material: the best books come from the author rewriting drafts like this in her own words.
+        </div>
+      )}
       <div className="prose-out">{prose}</div>
       <DraftCheck t={t} text={prose} />
       {t.parsed?.editorNote && <div className="note-box" style={{ marginTop: 8 }}>{t.parsed.editorNote}</div>}
@@ -532,7 +540,7 @@ function ProseResult({ t, chapterId }: { t: Thread; chapterId: string }) {
         <div className="ok-box" style={{ marginTop: 8 }}>{t.applied}</div>
       ) : (
         <div className="row" style={{ marginTop: 10 }}>
-          {page === 'write' && (
+          {page === 'write' && !draft && (
             <button
               className="btn primary small"
               onClick={() => {
@@ -544,13 +552,18 @@ function ProseResult({ t, chapterId }: { t: Thread; chapterId: string }) {
             </button>
           )}
           <button
-            className="btn small"
+            className={`btn small${draft ? ' primary' : ''}`}
             onClick={() => {
               insertText(chapterId, prose, 'end', `Before adding "${t.label}"`);
-              markApplied(t.id, `Added to the end of ${chapterLabel(p, chapterId)}.`);
+              markApplied(
+                t.id,
+                draft
+                  ? `Added to ${chapterLabel(p, chapterId)}. Now make it yours: read it aloud, and change anything that doesn't sound like you. (History in the Write view can undo this.)`
+                  : `Added to the end of ${chapterLabel(p, chapterId)}.`,
+              );
             }}
           >
-            Add to end of chapter
+            {draft ? 'Put this draft in the chapter' : 'Add to end of chapter'}
           </button>
           <button className="btn small" onClick={() => retry(t.id)}>
             Show me another version
@@ -815,6 +828,19 @@ function TextResult({ t, chapterId }: { t: Thread; chapterId: string }) {
             }}
           >
             Save as chapter plan
+          </button>
+        )}
+        {id === 'styleProfile' && (
+          <button
+            className="btn small primary"
+            disabled={!!saved}
+            onClick={() => {
+              const p = getState().project!;
+              updateProject({ tone: { ...p.tone, styleProfile: t.raw.trim() } });
+              setSaved('Saved as your style guide (Story Bible → Tone & feel). Your editor will follow it whenever it writes for you.');
+            }}
+          >
+            Use as my style guide
           </button>
         )}
         {(id === 'pitch' || id === 'queryBuilder' || id === 'pitchComps') && (

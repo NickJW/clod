@@ -121,8 +121,34 @@ function ToneTab() {
       <div className="card">
         <h3>In your own words</h3>
         <Field label="How should it feel?" hint='e.g. "Disturbing but not gratuitous." Your editor remembers this.' value={t.description} onChange={(description) => set({ description })} long serif />
-        <Field label="Style words" hint='e.g. "restrained, claustrophobic, literary but accessible". Describe a feel, not an author to copy.' value={t.styleWords} onChange={(styleWords) => set({ styleWords })} long />
+        <Field label="Style words" hint='e.g. "restrained, claustrophobic, literary but accessible".' value={t.styleWords} onChange={(styleWords) => set({ styleWords })} long />
         <Field label="Things you never want" hint="Your editor will steer clear of these." value={t.avoid} onChange={(avoid) => set({ avoid })} long />
+      </div>
+      <div className="card">
+        <h3>Books and authors you love</h3>
+        <p className="muted small">
+          Name the writers and books you'd love yours to sit beside, and what you love about each: the atmosphere, the twists, the way people talk. Your editor learns the craft behind them (never copying their words) and blends it with your own voice.
+        </p>
+        <Field
+          label="Your influences"
+          hint={'e.g. "Rebecca by Daphne du Maurier: the house feels alive, and the narrator doubts herself. Agatha Christie: the clues are in plain sight."'}
+          value={t.influences}
+          onChange={(influences) => set({ influences })}
+          long
+          serif
+        />
+        <div className="row">
+          <span className="small muted">Then turn them into a style guide. Your editor follows it whenever it writes for you.</span>
+          <span className="spacer" />
+          <AskButton action="styleProfile" label="Turn my influences into a style guide" run />
+        </div>
+        <Field
+          label="Your style guide"
+          hint="Edit it freely: it's yours. Leave it blank if you'd rather your editor simply follow your own pages."
+          value={t.styleProfile}
+          onChange={(styleProfile) => set({ styleProfile })}
+          long
+        />
       </div>
     </>
   );

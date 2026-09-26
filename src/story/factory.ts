@@ -73,6 +73,8 @@ export const defaultTone = (): Tone => ({
   description: '',
   styleWords: '',
   avoid: '',
+  influences: '',
+  styleProfile: '',
 });
 
 export const emptyMystery = (): MysteryTruth => ({

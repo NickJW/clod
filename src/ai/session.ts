@@ -65,6 +65,8 @@ export interface Thread {
   handled: Record<number, string>;
   followUps: { q: string; a: string; status: 'running' | 'done' | 'error' }[];
   applied?: string;
+  /** Shown while a multi-step job is working (e.g. "Line-editing the draft…"). */
+  stage?: string;
 }
 
 interface PanelState {
@@ -204,21 +206,54 @@ export async function run(input: JobInput): Promise<void> {
         fast: built.fast,
         search: built.search,
         json: built.json ?? ['options', 'findings', 'extract'].includes(built.output),
+        patient: !!built.secondPass,
         signal: ctrl.signal,
         onText: (t) => patchThread(id, { streaming: t }),
       },
       settings,
     );
     recordUsage(res.usage);
-    const parsed = parse(built.output, res.text);
+    let final = res;
+    let messages: AIMessage[] = [...thread.messages, { role: 'assistant', content: res.text }];
+    if (built.secondPass && settings.providerId !== 'manual' && res.text.trim()) {
+      const draft = parse('prose', res.text)?.prose ?? res.text;
+      const pass = built.secondPass(draft, !!res.stoppedEarly);
+      patchThread(id, { stage: 'First draft done. Now your editor is line-editing it, the way a professional would…', streaming: '' });
+      try {
+        const res2 = await getProvider(settings.providerId).complete(
+          {
+            system,
+            context,
+            messages: [{ role: 'user', content: pass.user }],
+            maxTokens: pass.maxTokens,
+            creativity: Math.min(settings.creativity, 0.6),
+            patient: true,
+            signal: ctrl.signal,
+            onText: (t) => patchThread(id, { streaming: t }),
+          },
+          settings,
+        );
+        recordUsage(res2.usage);
+        const revised = parse('prose', res2.text)?.prose ?? '';
+        // Keep the first draft if the edit came back cut short or suspiciously shorter.
+        if (!res2.stoppedEarly && revised.length > draft.length * 0.75) {
+          final = res2;
+          messages = [...thread.messages, { role: 'assistant', content: res2.text }];
+        }
+      } catch (e) {
+        if (ctrl.signal.aborted) throw e;
+      }
+    }
+    const parsed = parse(built.output, final.text);
     patchThread(id, {
+      stage: '',
       status: 'done',
-      raw: res.text,
+      raw: final.text,
       parsed,
-      usage: res.usage,
+      usage: final.usage,
       streaming: '',
-      messages: [...thread.messages, { role: 'assistant', content: res.text }],
-      error: res.stoppedEarly ? 'The answer was cut short because it was very long.' : '',
+      messages,
+      error: final.stoppedEarly ? 'The answer was cut short because it was very long.' : '',
     });
   } catch (e) {
     patchThread(id, {

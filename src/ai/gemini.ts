@@ -103,7 +103,8 @@ async function once(req: AIRequest, s: AISettings): Promise<AIResult> {
     throw new AIError('Gemini declined to answer this one (its content filter can be over-cautious with dark fiction). Try rewording the request, or select a smaller passage.', 'other');
   if (!text) throw new AIError('Gemini returned an empty answer. Please try again.', 'other');
   if (sources.size) text += `\n\n**Sources (from Google Search)**\n${[...sources].slice(0, 12).map(([u, t]) => `- [${t}](${u})`).join('\n')}`;
-  return { text, usage, stoppedEarly: finish === 'MAX_TOKENS' };
+  // No finish reason at all means the stream ended before Gemini said it was done.
+  return { text, usage, stoppedEarly: finish === 'MAX_TOKENS' || !finish };
 }
 
 const version = (id: string) => parseFloat(id.match(/gemini-(\d+(?:\.\d+)?)/)?.[1] ?? '0');
@@ -153,6 +154,22 @@ function noSearch(req: AIRequest): AIRequest {
   };
 }
 
+let familyCache: { key: string; list: Promise<string[]> } | null = null;
+/** Full-size numbered Flash models on this key, newest first (listed once per session). */
+function flashFamily(apiKey: string): Promise<string[]> {
+  if (familyCache?.key !== apiKey)
+    familyCache = {
+      key: apiKey,
+      list: listGeminiModels(apiKey)
+        .then((ids) => ids.filter((id) => /^gemini-\d[\d.]*-flash$/.test(id)).sort((a, b) => version(b) - version(a)))
+        .catch(() => {
+          familyCache = null;
+          return [];
+        }),
+    };
+  return familyCache.list;
+}
+
 export const geminiProvider: AIProvider = {
   id: 'gemini',
   name: 'Google Gemini',
@@ -164,11 +181,15 @@ export const geminiProvider: AIProvider = {
     // fall back to the lighter Flash-Lite model so the author can keep working.
     const main = badGeminiDefault(s.model) && /omni/.test(s.model) ? 'gemini-flash-latest' : s.model;
     const lite = s.fastModel && s.fastModel !== main ? s.fastModel : 'gemini-flash-lite-latest';
-    const models = [...new Set(req.fast ? [lite, main] : [main, lite])];
+    // Each model has its own free daily allowance, so before dropping to Lite, try the
+    // other full-size Flash models on this key (newest first).
+    const family = req.fast ? [] : (await flashFamily(s.apiKey)).filter((id) => id !== main).slice(0, 4);
+    const models = [...new Set(req.fast ? [lite, main] : [main, ...family, lite])];
     let lastErr: unknown;
     let search = !!req.search;
     for (const m of models) {
-      for (let attempt = 0; attempt < 2; attempt++) {
+      const tries = req.patient && m === main ? 4 : 2;
+      for (let attempt = 0; attempt < tries; attempt++) {
         try {
           const res = await once(search ? req : noSearch(req), { ...s, model: m, fastModel: m });
           return req.search && !search ? { ...res, text: `**Note:** web search isn't available on your current Gemini plan, so this answer comes from the AI's memory. Check every title, name and link before relying on it.\n\n${res.text}` } : res;
@@ -182,8 +203,8 @@ export const geminiProvider: AIProvider = {
             continue;
           }
           // A brief overload is worth one retry on the same model. Anything else moves on to the lighter model.
-          if ((e.kind === 'busy' || e.kind === 'network') && attempt === 0) {
-            await new Promise((r) => setTimeout(r, 3000));
+          if ((e.kind === 'busy' || e.kind === 'network') && attempt < tries - 1) {
+            await new Promise((r) => setTimeout(r, [3000, 8000, 15000][attempt] ?? 3000));
             continue;
           }
           break;

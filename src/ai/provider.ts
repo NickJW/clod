@@ -27,6 +27,8 @@ export interface AIRequest {
   search?: boolean;
   /** The answer must be JSON (providers that support it enforce valid JSON). */
   json?: boolean;
+  /** Quality matters more than speed (whole-chapter drafts): wait out a busy model rather than switching to a lighter one. */
+  patient?: boolean;
   signal?: AbortSignal;
   onText?: (fullTextSoFar: string) => void;
 }

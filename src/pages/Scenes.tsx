@@ -181,6 +181,7 @@ function ChapterPlan({ ch, onScene }: { ch: Chapter; onScene: (id: string) => vo
           <span className="spacer" />
           <AskButton action="chapterPlan" label="Turn my answers into a plan" input={{ chapterId: ch.id }} run />
           <AskButton action="scene" label="Help me build a scene" input={{ chapterId: ch.id }} />
+          <AskButton action="draftChapter" label="Draft this chapter for me" input={{ chapterId: ch.id }} />
         </div>
       </div>
       <div className="card">
