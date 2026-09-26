@@ -696,7 +696,7 @@ function OptionsResult({ t }: { t: Thread }) {
         </div>
       )}
       {parsed.options?.map((o, i) => (
-        <div key={i} className={`opt${t.handled[i] ? ' done' : ''}`}>
+        <div key={i} className={`opt${t.handled[i] ? ' done' : ''}`} style={{ animationDelay: `${i * 70}ms` }}>
           <div className="ot">{o.title || `Option ${i + 1}`}</div>
           <div style={{ margin: '4px 0' }}>{o.idea}</div>
           <details>
@@ -750,7 +750,7 @@ function FindingsResult({ t }: { t: Thread }) {
     <>
       {parsed.summary && <p style={{ fontSize: '0.95rem' }}>{parsed.summary}</p>}
       {parsed.findings?.map((f, i) => (
-        <div key={i} className={`finding ${f.level?.startsWith('likely') ? 'likely' : f.level?.startsWith('worth') ? 'worth' : 'note'}`}>
+        <div key={i} style={{ animationDelay: `${i * 60}ms` }} className={`finding ${f.level?.startsWith('likely') ? 'likely' : f.level?.startsWith('worth') ? 'worth' : 'note'}`}>
           <div className="row" style={{ gap: 6 }}>
             <span className="ft">{f.title}</span>
             {f.level && f.level !== 'note' && <span className={`pill ${f.level.startsWith('likely') ? 'accent' : 'warn'}`}>{f.level}</span>}

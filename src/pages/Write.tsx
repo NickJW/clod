@@ -64,6 +64,7 @@ function ChapterList({ p, current }: { p: Project; current: string }) {
               <div className="tt">{c.title || 'Untitled'}</div>
               <div className="st">
                 {c.status} · {countWords(c.text).toLocaleString()} words
+                {c.status === 'Done' && <span className="stamp" key={`done-${c.id}`}>✓</span>}
               </div>
             </button>
             {active && scenes.length > 0 && (
@@ -507,7 +508,9 @@ function ChapterEditor({ p, ch, onRead }: { p: Project; ch: Chapter; onRead: () 
         ) : saveState === 'saving' || text !== committed.current ? (
           <span>Saving…</span>
         ) : (
-          <span className="save-ok">✓ Saved {lastSavedAt ? timeAgo(lastSavedAt) : ''}</span>
+          <span className="save-ok">
+            <span className="tick" key={lastSavedAt}>✓</span> Saved {lastSavedAt ? timeAgo(lastSavedAt) : ''}
+          </span>
         )}
       </div>
 

@@ -77,6 +77,7 @@ export function applyAppearance() {
   const root = document.documentElement;
   root.dataset.theme = getPref('theme', 'light');
   root.dataset.textsize = getPref('textSize', 'normal');
+  root.dataset.motion = getPref('motion', true) ? 'on' : 'off';
   root.style.setProperty('--ms-size', `${getPref('msSize', 21)}px`);
   const fonts: Record<string, string> = {
     garamond: "'EB Garamond', Georgia, serif",
@@ -407,6 +408,20 @@ function Appearance() {
           <input type="range" min={16} max={30} value={ms} onChange={(e) => set('msSize', +e.target.value)} style={{ width: '100%', accentColor: 'var(--accent)' }} />
         </div>
       </div>
+      <label className="row" style={{ cursor: 'pointer', marginBottom: 10 }}>
+        <input type="checkbox" checked={getPref('motion', true)} onChange={(e) => set('motion', e.target.checked)} />
+        <span>
+          <b>Gentle animations</b>
+          <span className="muted small"> · soft fades, a small tick when saved, and a brief celebration at milestones</span>
+        </span>
+      </label>
+      <label className="row" style={{ cursor: 'pointer', marginBottom: 10 }}>
+        <input type="checkbox" checked={getPref('celebrations', true)} onChange={(e) => set('celebrations', e.target.checked)} />
+        <span>
+          <b>Celebrate milestones</b>
+          <span className="muted small"> · 1,000, 5,000, 10,000 words… your daily goal, and a finished first draft</span>
+        </span>
+      </label>
       <label className="row" style={{ cursor: 'pointer' }}>
         <input type="checkbox" checked={first} onChange={(e) => set('firstTime', e.target.checked)} />
         <span>

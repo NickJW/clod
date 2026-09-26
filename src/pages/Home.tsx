@@ -302,7 +302,7 @@ function DailyGoal() {
           Change goal
         </button>
       </div>
-      <div className="progress" style={{ marginTop: 8, height: 6 }}>
+      <div className={`progress${today >= goal ? ' goal-met' : ''}`} style={{ marginTop: 8, height: 6 }}>
         <div style={{ width: `${Math.max(2, pct)}%` }} />
       </div>
     </div>

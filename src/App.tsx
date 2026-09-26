@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { go, useApp, type Page } from './story/store';
 import { AIPanel } from './components/AIPanel';
 import { ManualHost } from './components/ManualHost';
+import { Celebrate } from './components/Celebrate';
 import { ConfirmHost, Icon, Toasts } from './components/ui';
 import { Onboarding } from './pages/Onboarding';
 import { Home } from './pages/Home';
@@ -102,7 +103,7 @@ export default function App() {
           </div>
         )}
         {!focus && <GuideBanner />}
-        {page === 'home' && <Home />}
+        {page === 'home' && <Home key="home" />}
         {page === 'guide' && <Guide />}
         {page === 'write' && <Write />}
         {page === 'story' && <Story />}
@@ -122,6 +123,7 @@ export default function App() {
       <Toasts />
       <ConfirmHost />
       <ManualHost />
+      <Celebrate />
     </div>
   );
 }
