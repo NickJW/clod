@@ -118,7 +118,7 @@ p { margin: 0 0 0.8em; }
 .nav-sep { height: 1px; background: var(--line); margin: 10px 8px; }
 .nav-foot { margin-top: auto; padding: 12px 10px 0; font-size: 0.82rem; color: var(--muted); }
 
-.main { min-width: 0; }
+.main { min-width: 0; container-type: inline-size; }
 .page { max-width: 1120px; margin: 0 auto; padding: 34px 40px 80px; }
 .page-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; margin-bottom: 26px; flex-wrap: wrap; }
 .page-head p.lead { color: var(--muted); margin: 6px 0 0; max-width: 60ch; }
@@ -584,3 +584,8 @@ html:not([data-motion='off']) .menu button:hover { transform: translateX(3px); }
 .tab:hover { color: var(--accent); }
 .table tr.click:hover td { background: transparent; color: var(--accent); }
 .status-select:hover { border-color: var(--brass); }
+
+/* Home: stack the title page and "what next" card when the editor panel leaves the page narrow. */
+@container (max-width: 860px) {
+  .hero { grid-template-columns: 1fr; }
+}

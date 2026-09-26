@@ -433,7 +433,7 @@ export function Markdown({ text }: { text: string }) {
 }
 
 /** "Watch the video tour": a narrated walkthrough of the whole studio. */
-export function TourButton({ className = 'btn', label = 'Watch the video tour (7 min)' }: { className?: string; label?: string }) {
+export function TourButton({ className = 'btn', label = 'Watch the video tour (6½ min)' }: { className?: string; label?: string }) {
   const [open, setOpen] = useState(false);
   return (
     <>

@@ -8,3 +8,4 @@ Scripts that produce `public/tour/` (the narrated walkthrough shown in the app).
 - `record.mjs`: drives the real app with Playwright (canned AI answers), timed to the narration. Env `TOUR` = working dir, `PW` = playwright path.
 - `vtt.py`: builds subtitles from `starts.json` and `durations.json`.
 - `clips/*.ogg`: verified narration clips (convert to `.wav` in the working dir before use).
+- `mux.py`: adds the voice clips to `raw.webm` at the scene start times in `vstarts.json`. Read those from the video itself (the caption box changes per scene), not from `starts.json`: the recording's clock drifts about a second per scene behind the script's clock.
