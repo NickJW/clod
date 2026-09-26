@@ -26,6 +26,7 @@ import {
   storyBibleMarkdown,
 } from '../services/exporter';
 import { Icon, confirmDialog } from '../components/ui';
+import { DriveSettings } from '../components/DrivePanel';
 
 function FolderBackup() {
   const p = useProject();
@@ -102,6 +103,7 @@ export function Settings() {
       <Appearance />
       <ExportSection />
       <ImportSection />
+      <DriveSettings />
       <SafetySection />
       <ProjectsSection />
       <Privacy />

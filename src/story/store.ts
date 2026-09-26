@@ -100,6 +100,13 @@ let saveTimer: ReturnType<typeof setTimeout> | null = null;
 let lastFolderTry = 0;
 let lastEmergency = 0;
 
+/** Listeners told after each successful save (e.g. Google Drive sync). */
+const saveListeners = new Set<(p: Project) => void>();
+export function onSaved(fn: (p: Project) => void): () => void {
+  saveListeners.add(fn);
+  return () => saveListeners.delete(fn);
+}
+
 /** Places holding not-yet-committed text (the open editor) register here, so every save includes it. */
 const flushHooks = new Set<() => void>();
 export function registerFlushHook(fn: () => void): () => void {
@@ -144,6 +151,7 @@ export async function flushSave(): Promise<void> {
     await db.saveProject(p);
     // Only say "Saved" if nothing changed while we were writing.
     if (state.project === p) setState({ saveState: 'saved', lastSavedAt: Date.now(), saveError: '' });
+    saveListeners.forEach((fn) => fn(p));
     if (Date.now() - lastEmergency > 60000) {
       lastEmergency = Date.now();
       db.writeEmergencyCopy(p);
@@ -243,6 +251,27 @@ export async function createProject(p: Project): Promise<void> {
   db.setPref('lastProject', p.id);
   setState({ project: p, page: 'home', otherWindow: false, startNew: false });
   announceOpen(p.id);
+  await refreshProjects();
+}
+
+/**
+ * Store a novel exactly as given (keeping its own last-changed time), e.g. from Google Drive.
+ * With open=true it replaces what's on screen: the editor closes first so no stale text is written back.
+ */
+export async function adoptProject(p: Project, open = true): Promise<void> {
+  await flushSave();
+  if (open && state.project) {
+    setState({ page: 'home' });
+    await new Promise((r) => setTimeout(r, 0));
+    await flushSave();
+  }
+  await db.saveProject(p);
+  db.writeEmergencyCopy(p);
+  if (open) {
+    db.setPref('lastProject', p.id);
+    setState({ project: p, page: 'home', otherWindow: false, startNew: false });
+    announceOpen(p.id);
+  }
   await refreshProjects();
 }
 

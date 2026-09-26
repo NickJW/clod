@@ -1,5 +1,6 @@
 // The dashboard: where am I, what am I writing, what do I do next?
 import { go, setState, toast, updateProject, useApp, useProject } from '../story/store';
+import { connectDrive, driveAvailable, useDrive } from '../services/drive';
 import { useEffect, useState } from 'react';
 import { backupToFolder, chooseFolder, folderSupported, getFolder } from '../services/backupFolder';
 import { getAISettings } from '../ai/provider';
@@ -165,7 +166,9 @@ function BackupCard() {
   useEffect(() => {
     getFolder().then((h) => setFolder(h?.name ?? ''));
   }, []);
+  const driveOn = useDrive((s) => s.enabled);
   const stale = !p.lastBackupAt || Date.now() - p.lastBackupAt > 7 * 864e5;
+  if (driveOn && !needsPerm) return null;
   if (folder === null || (!stale && !needsPerm)) return null;
 
   const saveToFolder = async () => {
@@ -191,7 +194,7 @@ function BackupCard() {
             <b>Keep a safety copy.</b>{' '}
             <span className="muted">
               Last backup: {timeAgo(p.lastBackupAt)}.{' '}
-              {folderSupported ? 'Choose a folder once (Documents is fine) and Nightjar will back up your novel there automatically.' : 'A backup file lets you restore your novel on any computer.'}
+              {driveAvailable() ? 'Save it to your Google Drive and it stays backed up online automatically, and opens on any computer you sign in on.' : folderSupported ? 'Choose a folder once (Documents is fine) and Nightjar will back up your novel there automatically.' : 'A backup file lets you restore your novel on any computer.'}
             </span>
           </>
         )}
@@ -202,9 +205,14 @@ function BackupCard() {
         </button>
       ) : (
         <>
+          {driveAvailable() && (
+            <button className="btn primary" onClick={() => void connectDrive()}>
+              Save to Google Drive
+            </button>
+          )}
           {folderSupported && (
             <button
-              className="btn primary"
+              className={`btn${driveAvailable() ? '' : ' primary'}`}
               onClick={async () => {
                 const h = await chooseFolder();
                 if (h) {

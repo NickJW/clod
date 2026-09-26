@@ -4,6 +4,8 @@ import { createProject, useApp, openProject, deleteProject, setState } from '../
 import { newCharacter, newIdea, newProject } from '../story/factory';
 import { demoProject } from '../story/seed';
 import { AutoTextarea, Icon, confirmDialog, TourButton } from '../components/ui';
+import { DriveOpenButton } from '../components/DrivePanel';
+import { driveAvailable } from '../services/drive';
 import { timeAgo } from '../story/reference';
 import { readBackup } from '../services/exporter';
 import { useSpeech } from '../editor/speech';
@@ -72,6 +74,7 @@ export function Onboarding() {
                 Open the demo novel
               </button>
             )}
+            <DriveOpenButton />
             <RestoreButton />
           </div>
         </div>
@@ -199,6 +202,11 @@ export function Onboarding() {
           <p className="small muted" style={{ marginTop: 26 }}>
             Moving from another computer? <RestoreButton link />
           </p>
+        )}
+        {step === 0 && !projects.length && driveAvailable() && (
+          <div style={{ marginTop: 10 }}>
+            <DriveOpenButton className="btn" />
+          </div>
         )}
       </div>
     </div>

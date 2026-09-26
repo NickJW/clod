@@ -3,6 +3,8 @@ import { closeProject, go, useApp, type Page } from './story/store';
 import { AIPanel } from './components/AIPanel';
 import { ManualHost } from './components/ManualHost';
 import { Celebrate } from './components/Celebrate';
+import { DriveBanner } from './components/DrivePanel';
+import { useDrive } from './services/drive';
 import { ConfirmHost, Icon, Toasts } from './components/ui';
 import { Onboarding } from './pages/Onboarding';
 import { Home } from './pages/Home';
@@ -45,6 +47,7 @@ export default function App() {
   const page = useApp((s) => s.page);
   const focus = useApp((s) => s.focusMode);
   const otherWindow = useApp((s) => s.otherWindow);
+  const driveOn = useDrive((s) => s.enabled);
 
   useEffect(() => applyAppearance(), []);
 
@@ -92,7 +95,7 @@ export default function App() {
             <Icon name="settings" />
             <span className="lbl">Settings & Backup</span>
           </button>
-          <div className="nav-foot">Your novel is saved on this computer automatically.</div>
+          <div className="nav-foot">{driveOn && !project.isDemo ? 'Saved on this computer and in your Google Drive.' : 'Your novel is saved on this computer automatically.'}</div>
         </nav>
       )}
       <main className="main">
@@ -116,6 +119,7 @@ export default function App() {
             </button>
           </div>
         )}
+        {!focus && <DriveBanner />}
         {!focus && <GuideBanner />}
         {page === 'home' && <Home key="home" />}
         {page === 'guide' && <Guide />}
