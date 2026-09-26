@@ -186,7 +186,7 @@ input.title-input:focus { outline: none; border-bottom-color: var(--brass); }
 .pill.warn { background: var(--warn-soft); color: var(--warn); }
 .status-select { border: 1px solid var(--line); background: var(--paper); border-radius: 99px; padding: 3px 10px; font-size: 0.8rem; font-weight: 600; cursor: pointer; min-height: 30px; }
 
-.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 22px; overflow-x: auto; }
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 22px; flex-wrap: wrap; }
 .tab { background: none; border: 0; padding: 10px 16px; cursor: pointer; color: var(--muted); font-weight: 500; border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap; font-size: 0.97rem; }
 .tab:hover { color: var(--ink); }
 .tab.active { color: var(--ink); border-bottom-color: var(--accent); }
