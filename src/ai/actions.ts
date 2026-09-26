@@ -5,7 +5,7 @@ import type { IdeaCategory, Project } from '../types';
 import { FORMAT, type RoleId } from './prompts';
 import type { Scope } from './context';
 import { characterName, chapterLabel, countWords } from '../story/reference';
-import { freshnessBrief, draftAudit, manuscriptMetrics } from '../editor/freshness';
+import { aiTellRate, draftAudit, freshnessBrief, manuscriptMetrics, ownVoiceSample, paragraphs, watchedParagraphs } from '../editor/freshness';
 import { nearbyText } from './context';
 
 export type OutputKind = 'prose' | 'revision' | 'options' | 'findings' | 'text' | 'extract';
@@ -106,6 +106,7 @@ export type ActionId =
   | 'genrePromise'
   | 'proofread'
   | 'voiceDrift'
+  | 'humanPass'
   | 'permissions'
   | 'sensitivity'
   | 'contentNotes'
@@ -150,6 +151,7 @@ export const REVISION_LEVELS: { id: string; label: string; instruction: string }
   { id: 'suspense', label: 'More suspenseful', instruction: 'MORE SUSPENSEFUL: increase uncertainty, information asymmetry, vulnerability and anticipation. Delay or withhold; don\'t announce danger.' },
   { id: 'intimate', label: 'More intimate', instruction: 'MORE INTIMATE: increase emotional closeness and interiority for the point-of-view character, through small physical detail and restraint, not declarations.' },
   { id: 'faster', label: 'Make it faster', instruction: 'FASTER: tighten pacing. Cut summary and reflection, shorten paragraphs, enter later and leave earlier.' },
+  { id: 'human', label: 'Make it sound like me', instruction: 'MAKE IT SOUND LIKE ME: remove everything that reads as machine-written or generic (stock phrases, tidy three-part lists, explained emotions or explained significance, "not X but Y", em dashes, words AI overuses, symmetrical sentences, a neat moral at the end of a paragraph) and bring it into the author\'s own voice, using her sample as the model: her rhythm, her diction, her level of plainness and restraint, even her small imperfections. Keep every fact and event. Change as little as achieves this.' },
   { id: 'literary', label: 'More literary', instruction: 'MORE LITERARY: increase specificity, subtext, imagery and thematic resonance, with occasional striking language. Do not become purple.' },
 ];
 
@@ -686,13 +688,13 @@ Respond with the full revised chapter only: no title, no commentary. Keep any "E
     label: 'Turn my influences into a style guide',
     blurb: 'Reads the authors you love and your own pages, and writes a concrete style guide your editor follows in every draft.',
     build: (p, i) => {
-      const own = p.chapters.filter((c) => countWords(c.text) > 300).sort((a, b) => countWords(b.text) - countWords(a.text))[0];
+      const own = ownVoiceSample(p, undefined, 3500);
       return {
         role: 'prose',
         scope: 'minimal',
         output: 'text',
         maxTokens: 1600,
-        user: `The author's influences (authors and books she loves, and what she loves about them):\n"""${p.tone.influences || '(none given yet)'}"""\n${own ? `\nA sample of her own prose:\n"""${own.text.trim().slice(0, 3500)}"""\n` : ''}${req(i)}\n\nWrite a practical style guide for HER book: the craft qualities to take from these influences, translated into concrete instructions a writer can follow. Don't imitate or name any author's signature phrasing; describe techniques. Cover, in short bullets under these headings: Point of view and distance; Sentences and rhythm; Description and atmosphere; Dialogue; Suspense and what to withhold; Romance and tension; Chapter openings and endings; Words and habits to avoid. Where her own sample already has a strong quality, keep it and say so; her voice wins over any influence. Under 380 words. No preamble.`,
+        user: `The author's influences (authors and books she loves, and what she loves about them):\n"""${p.tone.influences || '(none given yet)'}"""\n${own ? `\nA sample of her own prose:\n"""${own}"""\n` : ''}${req(i)}\n\nWrite a practical style guide for HER book: the craft qualities to take from these influences, translated into concrete instructions a writer can follow. Don't imitate or name any author's signature phrasing; describe techniques. Cover, in short bullets under these headings: Point of view and distance; Sentences and rhythm; Description and atmosphere; Dialogue; Suspense and what to withhold; Romance and tension; Chapter openings and endings; Words and habits to avoid. Where her own sample already has a strong quality, keep it and say so; her voice wins over any influence. Under 380 words. No preamble.`,
         craft: false,
       };
     },
@@ -1140,6 +1142,7 @@ For each reader, one finding titled "<Name>, <age>: <n>/10 would keep reading ·
     build: (p, i) => {
       const opening = p.chapters.map((c) => c.text).join('\n\n').slice(0, 12000);
       const pub = p.publishing;
+      const watch = p.chapters.flatMap((c, n) => watchedParagraphs(p, c.id, c.text).map((w) => `- Ch. ${n + 1}: "${w.slice(0, 220)}…"`)).slice(0, 14);
       return {
         role: 'developmental',
         scope: 'whole',
@@ -1164,7 +1167,7 @@ Score each criterion out of 10, as one finding each, titled "<criterion>: <n>/10
 3. Genre promise (psychological thriller and mystery conventions met or cleverly subverted; fair-play clues)
 4. Voice (distinctive and consistent, or generic?)
 5. Prose at sentence level (clarity, cliché, filtering, overwriting, rhythm)
-6. Human authenticity (screening tools and readers now flag prose that reads as AI-generated or template-like: stock phrases, explained emotions, symmetrical sentences, sameness. Quote any passages at risk)
+6. Human authenticity (screening tools and readers now flag prose that reads as AI-generated or template-like: stock phrases, explained emotions, symmetrical sentences, sameness. Quote any passages at risk)${watch.length ? `. Check these passages especially closely, and judge them only on how they read:\n${watch.join('\n')}` : ''}
 7. Protagonist and characters (agency, want versus fear, specificity)
 8. Pacing and tension across the book
 9. Dialogue
@@ -1266,6 +1269,37 @@ ${FORMAT.findings}`,
       craft: false,
     }),
   },
+  humanPass: {
+    id: 'humanPass',
+    label: 'Make drafted passages sound like me',
+    blurb: 'Rewrites only the passages your editor drafted (and any with clear AI habits) so they read as your own writing. You see every change before accepting.',
+    needs: 'selection',
+    build: (p, i) => {
+      const chId = i.selection?.chapterId ?? i.chapterId ?? p.currentChapterId;
+      const text = i.selection?.text ?? '';
+      const watch = watchedParagraphs(p, chId, text);
+      const tells = paragraphs(text).filter((x) => !watch.includes(x) && aiTellRate(x).rate > 25);
+      return {
+        role: 'prose',
+        scope: 'local',
+        output: 'revision',
+        maxTokens: Math.min(12000, Math.ceil(text.length / 2.5) + 1200),
+        focusText: [...watch, ...tells].join('\n').slice(0, 3000),
+        user: `Below is a whole chapter of the author's novel. Some paragraphs began as drafts from her AI editor, and a few others have habits that screening tools flag as machine-written. Rewrite ONLY those paragraphs so they read as her own writing: her voice sample is the model (rhythm, plain words, restraint, specific detail, the occasional imperfection). Remove stock phrases, explained emotions and explained significance, tidy three-part lists, "not X but Y", em dashes, symmetrical sentences, words AI overuses, and neat closing morals. Keep every fact, event, clue and line of dialogue's meaning. Every other paragraph must come back exactly as it is, character for character.
+
+PARAGRAPHS TO REWRITE (drafted by her AI editor):
+${watch.length ? watch.map((w) => `- "${w.slice(0, 120)}…"`).join('\n') : '(none)'}
+
+ALSO REWRITE (clear AI habits):
+${tells.length ? tells.map((w) => `- "${w.slice(0, 120)}…"`).join('\n') : '(none)'}${req(i)}
+
+THE CHAPTER:
+<chapter>${text}</chapter>
+
+${FORMAT.revision}`,
+      };
+    },
+  },
   voiceDrift: {
     id: 'voiceDrift',
     label: 'Voice drift check',
@@ -1273,13 +1307,15 @@ ${FORMAT.findings}`,
     needs: 'selection-or-chapter',
     build: (p, i) => {
       const x = passage(i, p);
-      const first = p.chapters.find((c) => c.text.trim().length > 1500 && c.id !== (i.chapterId ?? p.currentChapterId));
+      const chId = i.selection?.chapterId ?? i.chapterId ?? p.currentChapterId;
+      const sample = ownVoiceSample(p, chId, 3500);
+      const watch = watchedParagraphs(p, chId, x.text);
       return {
         role: 'prose',
         scope: 'minimal',
         output: 'findings',
         maxTokens: 2200,
-        user: `Here is a sample of the author's established voice:\n<voice>${(first?.text ?? '').slice(0, 3500)}</voice>\n\nCompare ${x.label} with it:\n<chapter>${x.text}</chapter>\n\nFlag passages whose voice drifts: more ornate or more generic, a different rhythm, vocabulary she doesn't use, or "polished" prose that sounds machine-written. Quote each passage, explain the difference, and suggest how to bring it back to her voice. Also note what's consistent. If there's no sample (no earlier chapter), judge internal consistency instead.\n\n${FORMAT.findings}`,
+        user: `Here is a sample of the author's established voice (her own words):\n<voice>${sample}</voice>\n\nCompare ${x.label} with it:\n<chapter>${x.text}</chapter>\n${watch.length ? `\nThese paragraphs began as drafts from her AI editor, so give them extra attention (judge them only on how they read, not on where they came from):\n${watch.map((w) => `- "${w.slice(0, 160)}…"`).join('\n')}\n` : ''}\nFlag passages whose voice drifts: more ornate or more generic, a different rhythm, vocabulary she doesn't use, or "polished" prose that sounds machine-written. Quote each passage, explain the difference, and suggest how to bring it back to her voice. Also note what's consistent. If there's no sample (no earlier chapter), judge internal consistency instead.\n\n${FORMAT.findings}`,
         craft: true,
       };
     },

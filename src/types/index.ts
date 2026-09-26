@@ -341,6 +341,8 @@ export interface Project extends Base {
   series: SeriesInfo;
   /** Saved results of whole-book analyses (page-turner chart, solvability test…). */
   lab: Record<string, { at: number; data: unknown }>;
+  /** Fingerprints of paragraphs that came from the AI editor, per chapter, to show what she hasn't rewritten yet. */
+  aiText: Record<string, string[]>;
 }
 
 export type CollectionKey =

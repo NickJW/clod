@@ -4,6 +4,7 @@ import { useSyncExternalStore } from 'react';
 import type { CollectionKey, ItemOf, Project, ProjectMeta } from '../types';
 import * as db from '../storage/db';
 import { normalizeProject, uid } from './factory';
+import { paragraphs, paraPrint } from '../editor/freshness';
 import { backupToFolder } from '../services/backupFolder';
 
 export type SaveState = 'saved' | 'saving' | 'error' | 'idle';
@@ -273,6 +274,17 @@ export async function adoptProject(p: Project, open = true): Promise<void> {
     announceOpen(p.id);
   }
   await refreshProjects();
+}
+
+/** Remember paragraphs that came from the AI editor, so Polish can show what she hasn't rewritten yet. */
+export function markAiText(chapterId: string, text: string) {
+  const p = state.project;
+  if (!p) return;
+  const prints = paragraphs(text).map(paraPrint);
+  if (!prints.length) return;
+  const prev = p.aiText?.[chapterId] ?? [];
+  const next = [...new Set([...prev, ...prints])].slice(-3000);
+  updateProject({ aiText: { ...(p.aiText ?? {}), [chapterId]: next } });
 }
 
 export async function closeProject(startNew = false): Promise<void> {

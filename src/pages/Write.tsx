@@ -454,6 +454,7 @@ function ChapterEditor({ p, ch, onRead }: { p: Project; ch: Chapter; onRead: () 
             ['Make darker', () => openEditor({ actionId: 'improve', selection: selection(), variant: 'darker' }, true)],
             ['More suspense', () => openEditor({ actionId: 'improve', selection: selection(), variant: 'suspense' }, true)],
             ['Subtler', () => openEditor({ actionId: 'improve', selection: selection(), variant: 'subtler' }, true)],
+            ['Sound like me', () => openEditor({ actionId: 'improve', selection: selection(), variant: 'human' }, true)],
             ['Editor\'s review', () => openEditor({ actionId: 'proseReview', selection: selection() }, true)],
             ['Ask about this', () => openEditor({ actionId: 'ask', selection: selection() })],
             ['Italic', toggleItalic],

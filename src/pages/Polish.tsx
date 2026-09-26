@@ -1,17 +1,19 @@
 // Polish: professional readiness. Free local checks first, then AI passes.
 import { useMemo, useState } from 'react';
-import { updateProject, useProject } from '../story/store';
+import { go, updateProject, useProject } from '../story/store';
+import { aiTellRate, watchedParagraphs } from '../editor/freshness';
 import { healthReport, motifCounts, nameIssues, styleIssues } from '../editor/analysis';
 import { openEditor } from '../ai/session';
 import { AutoTextarea, ChapterSelect, Field, Icon } from '../components/ui';
 import { Bars, Heat } from '../components/Chart';
 
-type Tab = 'health' | 'style' | 'names' | 'motifs' | 'passes';
+type Tab = 'health' | 'human' | 'style' | 'names' | 'motifs' | 'passes';
 
 export function Polish() {
   const [tab, setTab] = useState<Tab>('health');
   const tabs: [Tab, string][] = [
     ['health', 'Manuscript health'],
+    ['human', 'Sounds like you'],
     ['style', 'Style sheet'],
     ['names', 'Names'],
     ['motifs', 'Motifs'],
@@ -34,6 +36,7 @@ export function Polish() {
         ))}
       </div>
       {tab === 'health' && <Health />}
+      {tab === 'human' && <Human />}
       {tab === 'style' && <Style />}
       {tab === 'names' && <Names />}
       {tab === 'motifs' && <Motifs />}
@@ -250,5 +253,95 @@ function PassCard({ title, blurb, onClick, disabled }: { title: string; blurb: s
         <Icon name="spark" size={16} /> Run
       </button>
     </div>
+  );
+}
+
+/** Does every chapter sound like her? Free, instant, private. */
+function Human() {
+  const p = useProject();
+  const rows = useMemo(
+    () =>
+      p.chapters
+        .map((c, i) => ({ c, n: i + 1, words: c.text.trim() ? c.text.trim().split(/\s+/).length : 0 }))
+        .filter((r) => r.words > 150)
+        .map((r) => ({ ...r, watch: watchedParagraphs(p, r.c.id, r.c.text).length, tells: aiTellRate(r.c.text) })),
+    [p],
+  );
+  // The verdict reflects only how the page reads. Where a passage came from never counts against her.
+  const verdict = (rate: number) =>
+    rate > 8 ? { cls: 'warn', label: 'Needs a pass' } : rate > 4 ? { cls: 'possibility', label: 'A few spots' } : { cls: 'canon', label: 'Sounds like you' };
+  const run = (id: string, text: string) => openEditor({ actionId: 'humanPass', chapterId: id, selection: { chapterId: id, start: 0, end: text.length, text } }, true);
+  return (
+    <>
+      <div className="card">
+        <h3>Does every page sound like you?</h3>
+        <p className="muted small">
+          Publishers and agents now screen submissions for prose that reads as machine-written. This free check scores each chapter only on how it reads: how often the page uses habits typical of AI prose (per 1,000 words). Nothing leaves your computer.
+        </p>
+        <p className="muted small">
+          Your editor also keeps a private watch-list of passages it drafted for you, so it can give them extra attention in the voice check, the publisher screening and the button below. The watch-list never counts against you.
+        </p>
+        {rows.length === 0 ? (
+          <p className="muted">Write a chapter or two first.</p>
+        ) : (
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Chapter</th>
+                <th title="AI habits per 1,000 words">AI habits</th>
+                <th>Watch-list</th>
+                <th></th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => {
+                const v = verdict(r.tells.rate);
+                return (
+                  <tr key={r.c.id}>
+                    <td style={{ minWidth: 130 }}>
+                      {r.n}. {r.c.title}
+                    </td>
+                    <td>
+                      {r.tells.rate}
+                      {r.tells.top.length > 0 && <div className="tiny muted">{r.tells.top.join(', ')}</div>}
+                    </td>
+                    <td className="small muted">{r.watch ? `${r.watch} passage${r.watch === 1 ? '' : 's'}` : '-'}</td>
+                    <td>
+                      <span className={`pill ${v.cls}`}>{v.label}</span>
+                    </td>
+                    <td>
+                      <div className="row" style={{ gap: 6 }}>
+                        {(r.watch > 0 || r.tells.rate > 4) && (
+                          <button className="btn small brass" onClick={() => run(r.c.id, r.c.text)}>
+                            <Icon name="spark" size={14} /> Make it sound like me
+                          </button>
+                        )}
+                        <button className="btn small" onClick={() => openEditor({ actionId: 'voiceDrift', chapterId: r.c.id }, true)}>
+                          Voice check
+                        </button>
+                        <button className="btn small ghost" onClick={() => (updateProject({ currentChapterId: r.c.id }), go('write'))}>
+                          Open
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+      </div>
+      <div className="card">
+        <h3>How to make a passage yours</h3>
+        <ul className="small" style={{ margin: 0, paddingLeft: 18, lineHeight: 1.7 }}>
+          <li>Read it aloud. Anything you wouldn't say, or that sounds like a brochure, change into how you'd tell it.</li>
+          <li>Swap general words for the specific thing only you would notice: the brand of tea, the name of the dog, the crack in the mug.</li>
+          <li>Break the pattern: a very short sentence, a longer wandering one, a paragraph of a single line.</li>
+          <li>Cut explanations. If a character's feeling is clear from what they do, delete the sentence that names it.</li>
+          <li>For a quick start, select any passage in Write and choose <b>Sound like me</b>, or use <b>Make it sound like me</b> above for a whole chapter. Then reword what's left in your own way.</li>
+        </ul>
+      </div>
+    </>
   );
 }

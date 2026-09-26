@@ -19,7 +19,8 @@ import {
   type Thread,
 } from '../ai/session';
 import { getAISettings } from '../ai/provider';
-import { addItem, getState, go, patchItem, toast, updateProject, useApp } from '../story/store';
+import { addItem, getState, go, markAiText, patchItem, toast, updateProject, useApp } from '../story/store';
+import { paragraphs, paraPrint } from '../editor/freshness';
 import { newBelief, newCharacter, newClue, newEvent, newFact, newIdea, newNote, newPlace, newSecret } from '../story/factory';
 import { checkProse } from '../editor/proseCheck';
 import { recordTaste } from '../ai/context';
@@ -363,7 +364,7 @@ function ThreadView({ t }: { t: Thread }) {
 }
 
 /** Runs the free local prose check on the AI's own draft, and offers a cleaner retry. */
-const DRAFT_KINDS = ['cliche', 'dash', 'notbut', 'filter', 'emotion', 'ominous', 'asif', 'semi', 'rq'];
+const DRAFT_KINDS = ['cliche', 'aivocab', 'dash', 'notbut', 'filter', 'emotion', 'ominous', 'asif', 'semi', 'rq'];
 function DraftCheck({ t, text }: { t: Thread; text: string }) {
   const flags = useMemo(() => checkProse(text).flags.filter((f) => DRAFT_KINDS.includes(f.kind)), [text]);
   if (!flags.length || t.applied) return null;
@@ -545,6 +546,7 @@ function ProseResult({ t, chapterId }: { t: Thread; chapterId: string }) {
               className="btn primary small"
               onClick={() => {
                 insertText(chapterId, prose, 'cursor', `Before adding "${t.label}"`);
+                markAiText(chapterId, prose);
                 markApplied(t.id, 'Added to your chapter at the cursor.');
               }}
             >
@@ -555,6 +557,7 @@ function ProseResult({ t, chapterId }: { t: Thread; chapterId: string }) {
             className={`btn small${draft ? ' primary' : ''}`}
             onClick={() => {
               insertText(chapterId, prose, 'end', `Before adding "${t.label}"`);
+              markAiText(chapterId, prose);
               markApplied(
                 t.id,
                 draft
@@ -633,6 +636,9 @@ function RevisionResult({ t }: { t: Thread }) {
               if (!sel) return;
               if (applyReplacement(sel.chapterId, sel.start, original, revised, `Before "${t.label}"`)) {
                 markApplied(t.id, 'Accepted. Your original was kept in History.');
+                // Only paragraphs the edit actually changed count as the editor's words.
+                const mine = new Set(paragraphs(original).map(paraPrint));
+                markAiText(sel.chapterId, paragraphs(revised).filter((x) => !mine.has(paraPrint(x))).join('\n\n'));
                 recordTaste(getState().project!.id, 'accepted', REVISION_LEVELS.find((l) => l.id === t.input.variant)?.label ?? t.label);
               }
               else toast('That passage has changed since you asked, so it wasn\'t replaced. Copy the suggestion instead.', 'error');

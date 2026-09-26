@@ -297,6 +297,7 @@ export function newProject(title = 'My Novel'): Project {
     publishing: emptyPublishing(),
     series: { name: '', bookNumber: 1, previousProjectId: '', arc: '', seeds: '' },
     lab: {},
+    aiText: {},
   };
 }
 
@@ -333,6 +334,7 @@ export function normalizeProject(raw: unknown): Project {
     publishing: { ...base.publishing, ...((r.publishing as object) ?? {}) },
     series: { ...base.series, ...((r.series as object) ?? {}) },
     lab: (r.lab as Project['lab']) ?? {},
+    aiText: (r.aiText as Project['aiText']) ?? {},
   };
   if (!Array.isArray(p.publishing.agents)) p.publishing.agents = [];
   for (const key of Object.keys(COLLECTION_DEFAULTS) as CollectionKey[]) {

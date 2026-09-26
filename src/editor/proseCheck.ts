@@ -35,7 +35,6 @@ const CLICHES = [
   'let the silence',
   'the silence stretched',
   'a flicker of',
-  'something like',
   'palpable',
   'tapestry',
   'a testament to',
@@ -78,6 +77,13 @@ const CLICHES = [
   'delve',
   'undeniable',
   'unmistakable',
+];
+
+const AI_VOCAB = [
+  'delve', 'delved', 'tapestry', 'testament', 'intricate', 'intricately', 'nestled', 'myriad', 'amidst', 'labyrinthine', 'enigmatic', 'palpable', 'visceral',
+  'ethereal', 'liminal', 'gossamer', 'kaleidoscope', 'symphony', 'cacophony', 'resonate', 'resonated', 'resonating', 'unspoken', 'unwavering', 'indelible',
+  'juxtaposition', 'ministrations', 'shimmered', 'shimmering', 'thrumming', 'thrummed', 'thrum', 'reverie', 'imbued', 'tendrils', 'tendril', 'embark',
+  'intertwined', 'unravel', 'unraveling', 'unravelling', 'weaving', 'realm', 'beacon', 'crescendo', 'profound', 'poignant', 'meticulous', 'meticulously',
 ];
 
 const FILTERS = ['she felt', 'he felt', 'i felt', 'she noticed', 'he noticed', 'i noticed', 'she realized', 'he realized', 'i realized', 'she realised', 'he realised', 'i realised', 'she wondered', 'he wondered', 'she could see', 'he could see', 'she could hear', 'he could hear', 'she could feel', 'he could feel', 'she knew that', 'he knew that'];
@@ -137,6 +143,19 @@ export function checkProse(text: string): { flags: ProseFlag[]; stats: { words: 
       explain: 'Familiar phrases readers skim past. A specific detail from this exact moment usually works harder.',
       examples: clicheHits.sort((a, b) => a.index - b.index),
       weight: 10 + clicheHits.length,
+    });
+
+  // Words AI models lean on far more than novelists do (only flagged when they cluster).
+  const aiRe = new RegExp(`\\b(${AI_VOCAB.join('|')})\\b`, 'gi');
+  const aiHits = findAll(text, aiRe, 12);
+  const aiCount = countAll(text, aiRe);
+  if (words > 150 && (aiCount >= 4 || per1k(aiCount) > 3))
+    flags.push({
+      kind: 'aivocab',
+      title: `Words AI tends to overuse (${aiCount})`,
+      explain: 'Words like these show up far more in machine-written prose than in novels, so screeners notice them in clusters. Use your own plainer word, or cut.',
+      examples: aiHits,
+      weight: 9 + aiCount,
     });
 
   // Em dashes

@@ -94,7 +94,7 @@ export function draftAudit(p: Project, draft: string): string {
   const names = nameTokens(p);
   const lines: string[] = [];
   const check = checkProse(draft);
-  for (const f of check.flags.filter((f) => ['cliche', 'dash', 'notbut', 'filter', 'emotion', 'ominous', 'asif', 'semi', 'rq', 'adverb', 'triple', 'rhythm', 'opener', 'repeat', 'paras', 'was'].includes(f.kind)))
+  for (const f of check.flags.filter((f) => ['cliche', 'aivocab', 'dash', 'notbut', 'filter', 'emotion', 'ominous', 'asif', 'semi', 'rq', 'adverb', 'triple', 'rhythm', 'opener', 'repeat', 'paras', 'was'].includes(f.kind)))
     lines.push(`- ${f.title}${f.examples.length ? `: ${f.examples.slice(0, 4).map((e) => `"${e.text}"`).join('; ')}` : ''}`);
   const rep = repeatedPhrases(draft, 2, names, 10);
   if (rep.length) lines.push(`- Repeated phrases within this draft: ${rep.map((x) => `"${x.phrase}" (${x.n}×)`).join(', ')}`);
@@ -123,4 +123,67 @@ export function manuscriptMetrics(p: Project): string {
     `Dialogue: about ${Math.round((quoted / w) * 100)}% of words.`,
     `Automated prose flags: ${flags.length ? flags.map((f) => f.title).join('; ') : 'none'}.`,
   ].join('\n');
+}
+
+// ---------- Which words are still exactly as the AI wrote them ----------
+
+/** Fingerprint of a paragraph, ignoring case and spacing. */
+export function paraPrint(para: string): string {
+  const s = para.toLowerCase().replace(/\s+/g, ' ').trim();
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 0x01000193);
+  return (h >>> 0).toString(36);
+}
+export const paragraphs = (text: string) => text.split(/\n\s*\n/).map((x) => x.trim()).filter((x) => x.length > 40);
+
+/** Share of a chapter's words that sit in paragraphs still word-for-word as the AI editor wrote them. */
+export function untouchedAiShare(p: Project, chapterId: string, text: string): number {
+  const set = new Set(p.aiText?.[chapterId] ?? []);
+  if (!set.size) return 0;
+  let ai = 0, all = 0;
+  for (const para of paragraphs(text)) {
+    const n = para.split(/\s+/).length;
+    all += n;
+    if (set.has(paraPrint(para))) ai += n;
+  }
+  return all ? ai / all : 0;
+}
+
+/** Tells per 1,000 words that screeners and detectors associate with machine-written prose. */
+export function aiTellRate(text: string): { rate: number; top: string[] } {
+  const r = checkProse(text);
+  // Each stock phrase or AI-favoured word counts; a whole-page pattern (rhythm, openers) counts once.
+  const counted = ['cliche', 'aivocab', 'dash', 'notbut', 'emotion', 'ominous'];
+  const patterns = ['filter', 'asif', 'triple', 'rhythm', 'opener', 'paras', 'rq'];
+  const hits = r.flags.filter((f) => counted.includes(f.kind) || patterns.includes(f.kind));
+  const n = hits.reduce((s, f) => s + (counted.includes(f.kind) ? Number(f.title.match(/\((\d+)\)/)?.[1]) || 1 : 1), 0);
+  return { rate: r.stats.words ? Math.round((n / Math.max(800, r.stats.words)) * 1000 * 10) / 10 : 0, top: hits.slice(0, 3).map((f) => f.title.replace(/ \(\d+\)$/, '')) };
+}
+
+/** Paragraphs in a chapter that are still word-for-word as the AI editor drafted them (the watch-list). */
+export function watchedParagraphs(p: Project, chapterId: string, text: string): string[] {
+  const set = new Set(p.aiText?.[chapterId] ?? []);
+  return set.size ? paragraphs(text).filter((x) => set.has(paraPrint(x))) : [];
+}
+
+/** Her own paragraphs only (never ones the AI drafted), for voice samples. */
+export function ownParagraphs(p: Project, chapterId: string, text: string): string[] {
+  const set = new Set(p.aiText?.[chapterId] ?? []);
+  return paragraphs(text).filter((x) => !set.has(paraPrint(x)));
+}
+
+/** A sample of the author's own prose, from her longest mostly-own chapter (excluding one chapter if given). */
+export function ownVoiceSample(p: Project, excludeId?: string, maxChars = 2200): string {
+  const cands = p.chapters
+    .filter((c) => c.id !== excludeId)
+    .map((c) => ({ c, own: ownParagraphs(p, c.id, c.text) }))
+    .filter((x) => x.own.join(' ').length > 600);
+  if (!cands.length) return '';
+  const best = cands.reduce((a, b) => (b.own.join(' ').length > a.own.join(' ').length ? b : a));
+  let out = '';
+  for (const para of best.own.slice(Math.floor(best.own.length / 3))) {
+    if ((out + para).length > maxChars) break;
+    out += (out ? '\n\n' : '') + para;
+  }
+  return out || best.own[0].slice(0, maxChars);
 }
