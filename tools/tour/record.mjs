@@ -54,7 +54,20 @@ He finds her there. He won't say why he was at the wake. Wary, and something els
 
 **The question to carry forward:** if Tess didn't drown here, where did she die?`;
 
+const ANALYSIS = '```json\n' + JSON.stringify({
+  chapters: [1, 2, 3, 4, 5].map((n) => ({ chapter: n, keepReading: [8, 5, 8, 4, 9][n - 1], tension: [6, 5, 7, 5, 9][n - 1], endingHook: [8, 5, 8, 4, 9][n - 1], emotions: { dread: [6, 4, 7, 5, 9][n - 1], curiosity: [8, 6, 8, 5, 9][n - 1], grief: [8, 6, 3, 2, 4][n - 1], warmth: [2, 4, 3, 5, 1][n - 1], desire: [0, 2, 4, 6, 3][n - 1], relief: [0, 2, 1, 4, 0][n - 1], humour: [1, 3, 0, 2, 0][n - 1] }, raised: n === 4 ? [] : [['Why was Tess wearing the oilskin?', 'Why pay for an empty berth?'], ['How does Owen know about the watch?'], ['Where did Tess really die?'], [], ['Who moved the body?']][n - 1], answered: n === 3 ? ['Did Tess drown at the breakwater?'] : [], putDownRisk: n === 4 ? 'Nothing new is at stake for several pages' : n === 2 ? 'The wake lingers on pleasantries' : 'none' })),
+  overall: 'A gripping opening and a strong turn at the breakwater. Chapter 4 is the one place readers might drift.',
+  sags: ['Chapter 4: the lighthouse visit repeats what we already suspect'],
+  strengths: ['The receipt at 2 a.m.', 'The tide times reveal'],
+}) + '\n```';
+const SOLVE = '```json\n' + JSON.stringify({ chapters: [1, 2, 3, 4, 5].map((n) => ({ chapter: n, guesses: [
+  { reader: 'casual', suspect: n < 4 ? 'Margaret Vale' : 'Owen Pryce', confidence: [25, 30, 35, 45, 70][n - 1], why: 'She is hiding something.' },
+  { reader: 'fan', suspect: n < 2 ? 'Julian Hart' : n < 5 ? 'Elias Crane' : 'Owen Pryce', confidence: [20, 35, 40, 50, 75][n - 1], why: 'He was at the house that night.' },
+  { reader: 'expert', suspect: n < 3 ? 'Elias Crane' : 'Owen Pryce', confidence: [20, 30, 45, 55, 80][n - 1], why: 'The watch detail.' } ] })) }) + '\n```';
+
 function answerFor(prompt) {
+  if (prompt.includes('For EACH chapter, rate honestly')) return ANALYSIS;
+  if (prompt.includes('Simulate three different attentive readers')) return SOLVE;
   if (prompt.includes('Role-play as')) return OWEN;
   if (prompt.includes('beta reader')) return BETA;
   if (prompt.includes('Work BACKWARDS')) return BACKWARDS;
@@ -362,6 +375,65 @@ await scene('ending', async () => {
   await page.locator('.ai-body').evaluate((el) => el.scrollTo({ top: 0 }));
   await sleep(1500);
   await click(page.locator('.thread').first().locator('.opt .btn.primary').first());
+});
+await scene('lab', async () => {
+  await click(nav('Story Lab'));
+  await sleep(1500);
+  await click(page.getByRole('button', { name: /Run the page-turner analysis/ }));
+  await page.waitForFunction(() => !document.body.innerText.includes('Reading your whole book'), null, { timeout: 60000 });
+  await sleep(1200);
+  await scroll(380);
+  await moveTo(page.locator('svg').nth(4));
+  await sleep(3500);
+  await scroll(520);
+  await sleep(2500);
+});
+await scene('solve', async () => {
+  await scroll(-2000, 6);
+  await click(page.getByRole('button', { name: 'Solvability test', exact: true }));
+  await click(page.getByRole('button', { name: /Run the solvability test/ }));
+  await page.waitForFunction(() => !document.body.innerText.includes('Reading your whole book'), null, { timeout: 60000 });
+  await sleep(1200);
+  await scroll(300);
+  await sleep(3500);
+  await scroll(-600, 4);
+  await click(page.getByRole('button', { name: 'Stress tests', exact: true }));
+  await sleep(1500);
+  await moveTo(page.locator('.grid-3 .card', { hasText: 'counter-move' }));
+});
+await scene('polish', async () => {
+  await click(nav('Polish'));
+  await sleep(2000);
+  await scroll(350);
+  await sleep(2500);
+  await scroll(-600, 4);
+  await click(page.getByRole('button', { name: 'Style sheet', exact: true }));
+  await sleep(1500);
+  await click(page.getByRole('button', { name: 'Proofread and final checks', exact: true }));
+});
+await scene('publish', async () => {
+  await click(nav('Publish'));
+  await sleep(2000);
+  await click(page.getByRole('button', { name: 'Pitch materials', exact: true }));
+  await sleep(2500);
+  await click(page.getByRole('button', { name: 'Agents', exact: true }));
+  await sleep(2500);
+  await click(page.getByRole('button', { name: 'Submission package', exact: true }));
+  await moveTo(page.getByRole('button', { name: /Download submission package/ }));
+});
+await scene('series', async () => {
+  await click(nav('Series'));
+  await sleep(2500);
+  await scroll(500);
+  await moveTo(page.getByRole('button', { name: /Start Book 2/ }));
+});
+await scene('momentum', async () => {
+  await click(nav('Home'));
+  await sleep(1500);
+  await scroll(620);
+  await moveTo(page.getByText("Today's scene").first());
+  await sleep(3000);
+  await moveTo(page.getByText('Your pace').first());
 });
 await scene('settings', async () => {
   await click(nav('Settings & Backup'));

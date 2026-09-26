@@ -1,18 +1,112 @@
 [
-  {"id": "welcome", "caption": "Welcome to Nightjar, your novel studio", "text": "Welcome to Nightjar, your own private studio for writing your novel. Everything you write stays safely on your computer, and it saves by itself as you go. Let me show you around. We'll use a finished example book called The Salt House, so you can see everything in action."},
-  {"id": "home", "caption": "Home: your book at a glance", "text": "This is your Home page. You can see your title, how many words you've written, and today's progress toward your daily goal. The big button takes you straight back to the chapter you were working on. And whenever you're unsure what to do next, the Guide button shows your next step."},
-  {"id": "guide", "caption": "The Guide walks you through, step by step", "text": "The Guide is your map. It shows the whole journey of writing a book, in the order that works best: the heart of your story, your characters, your mystery, planning, writing, polishing, and your ending. Steps tick themselves off as you go. Click Take me there, and a bar at the top of the page always lets you come back, or move on to the next step."},
-  {"id": "craft", "caption": "Craft corner: short writing lessons", "text": "Below the steps is the Craft corner. These are short, friendly lessons on things like point of view, planting clues fairly, and writing dialogue. Each one has a Try it button that opens the right tool."},
-  {"id": "bible", "caption": "Story Bible: the truth of your book", "text": "The Story Bible holds the big picture: your premise, your setting, and the feel of the book. On the Tone tab, simple sliders tell your editor how dark, how romantic, or how fast you want it. On the Decisions tab, every idea is marked either Decided, or Maybe. Your editor treats decided things as fact, and never treats a maybe as fact."},
-  {"id": "characters", "caption": "Characters: wants, fears and secrets", "text": "In Characters, each person has a profile: what they want, what they fear, what they hide, and how they talk. You don't need to fill everything in. And here's a lovely tool: you can interview a character. Ask Owen where he was the night Tess died, and he answers in his own voice, and he lies, just as he would."},
-  {"id": "mystery", "caption": "Mystery board: clues, suspects, secrets", "text": "The Mystery board keeps your puzzle straight. Clues are colour coded: green for genuine clues, and red for red herrings. The Suspects tab tracks motive, means and opportunity for everyone under suspicion. And Connect the dots lets you pick any pieces of your story, and ask how they could be linked."},
-  {"id": "timeline", "caption": "Timeline: when things really happened", "text": "The Timeline shows when things really happened, including events before the book begins. If someone is in two places at once, it warns you."},
-  {"id": "outline", "caption": "Scenes and Outline: plan with simple questions", "text": "In Scenes and Outline, you plan each chapter by answering simple questions. What happens? What does she want? What gets in the way? What should the reader wonder afterwards? Then one click turns your answers into a chapter plan you can write from."},
-  {"id": "write", "caption": "Write: a quiet page, saved automatically", "text": "Now, the writing room. It's a quiet page with your chapters on the left. Just write. It saves automatically, and your word count updates as you go. The Talk button lets you speak instead of type."},
-  {"id": "improve", "caption": "Select words, then choose Improve", "text": "When you want to polish a passage, select it with your mouse, and a small menu appears. Choose Improve, and pick how much to change. Your editor suggests a revision, and shows you exactly what changed. Nothing changes unless you click Accept, and your original is always kept in History."},
-  {"id": "tools", "caption": "More tools: check prose, read like a reader", "text": "Under the More menu, there are a few more helpers. Check my prose is free and instant, and flags tired phrases. Read it like a reader gives you an honest first reader's reaction to your chapter: what gripped them, and who they suspect. And Update my story bible adds new facts from your chapter with one click."},
-  {"id": "think", "caption": "Your editor: help me think", "text": "On the right is your editor. Choose Think, and describe a problem in your own words. You'll get a few ideas, each with why it works, and its weaknesses. Click Use this to make it part of your story, Save as possibility to keep it for later, or Not for me, and it won't be suggested again."},
-  {"id": "ending", "caption": "Ending: plan backwards", "text": "On the Ending page, describe how your story resolves. Then click Plan backwards from my ending. Your editor works out what the reader needs to see along the way, and suggests which chapter each piece belongs in."},
-  {"id": "settings", "caption": "Settings: backups and your finished book", "text": "Finally, Settings. Choose a backup folder once, and your novel is copied there automatically. And when your book is ready, you can save it as a Word document in proper manuscript format, ready to send out."},
-  {"id": "close", "caption": "You're the author. Enjoy writing!", "text": "That's the tour. Remember: you're the author. Your editor is here to help you think and polish, but the story is yours. Whenever you're unsure what to do next, open the Guide. Happy writing."}
+ {
+  "id": "welcome",
+  "caption": "Welcome to Nightjar, your novel studio",
+  "text": "Welcome to Nightjar, your own private studio for writing your novel. Everything you write stays safely on your computer, and it saves by itself as you go. Let me show you around. We'll use a finished example book called The Salt House, so you can see everything in action."
+ },
+ {
+  "id": "home",
+  "caption": "Home: your book at a glance",
+  "text": "This is your Home page. You can see your title, how many words you've written, and today's progress toward your daily goal. The big button takes you straight back to the chapter you were working on. And whenever you're unsure what to do next, the Guide button shows your next step."
+ },
+ {
+  "id": "guide",
+  "caption": "The Guide walks you through, step by step",
+  "text": "The Guide is your map. It shows the whole journey of writing a book, in the order that works best: the heart of your story, your characters, your mystery, planning, writing, polishing, and your ending. Steps tick themselves off as you go. Click Take me there, and a bar at the top of the page always lets you come back, or move on to the next step."
+ },
+ {
+  "id": "craft",
+  "caption": "Craft corner: short writing lessons",
+  "text": "Below the steps is the Craft corner. These are short, friendly lessons on things like point of view, planting clues fairly, and writing dialogue. Each one has a Try it button that opens the right tool."
+ },
+ {
+  "id": "bible",
+  "caption": "Story Bible: the truth of your book",
+  "text": "The Story Bible holds the big picture: your premise, your setting, and the feel of the book. On the Tone tab, simple sliders tell your editor how dark, how romantic, or how fast you want it. On the Decisions tab, every idea is marked either Decided, or Maybe. Your editor treats decided things as fact, and never treats a maybe as fact."
+ },
+ {
+  "id": "characters",
+  "caption": "Characters: wants, fears and secrets",
+  "text": "In Characters, each person has a profile: what they want, what they fear, what they hide, and how they talk. You don't need to fill everything in. And here's a lovely tool: you can interview a character. Ask Owen where he was the night Tess died, and he answers in his own voice, and he lies, just as he would."
+ },
+ {
+  "id": "mystery",
+  "caption": "Mystery board: clues, suspects, secrets",
+  "text": "The Mystery board keeps your puzzle straight. Clues are colour coded: green for genuine clues, and red for red herrings. The Suspects tab tracks motive, means and opportunity for everyone under suspicion. And Connect the dots lets you pick any pieces of your story, and ask how they could be linked."
+ },
+ {
+  "id": "timeline",
+  "caption": "Timeline: when things really happened",
+  "text": "The Timeline shows when things really happened, including events before the book begins. If someone is in two places at once, it warns you."
+ },
+ {
+  "id": "outline",
+  "caption": "Scenes and Outline: plan with simple questions",
+  "text": "In Scenes and Outline, you plan each chapter by answering simple questions. What happens? What does she want? What gets in the way? What should the reader wonder afterwards? Then one click turns your answers into a chapter plan you can write from."
+ },
+ {
+  "id": "write",
+  "caption": "Write: a quiet page, saved automatically",
+  "text": "Now, the writing room. It's a quiet page with your chapters on the left. Just write. It saves automatically, and your word count updates as you go. The Talk button lets you speak instead of type."
+ },
+ {
+  "id": "improve",
+  "caption": "Select words, then choose Improve",
+  "text": "When you want to polish a passage, select it with your mouse, and a small menu appears. Choose Improve, and pick how much to change. Your editor suggests a revision, and shows you exactly what changed. Nothing changes unless you click Accept, and your original is always kept in History."
+ },
+ {
+  "id": "tools",
+  "caption": "More tools: check prose, read like a reader",
+  "text": "Under the More menu, there are a few more helpers. Check my prose is free and instant, and flags tired phrases. Read it like a reader gives you an honest first reader's reaction to your chapter: what gripped them, and who they suspect. And Update my story bible adds new facts from your chapter with one click."
+ },
+ {
+  "id": "think",
+  "caption": "Your editor: help me think",
+  "text": "On the right is your editor. Choose Think, and describe a problem in your own words. You'll get a few ideas, each with why it works, and its weaknesses. Click Use this to make it part of your story, Save as possibility to keep it for later, or Not for me, and it won't be suggested again."
+ },
+ {
+  "id": "ending",
+  "caption": "Ending: plan backwards",
+  "text": "On the Ending page, describe how your story resolves. Then click Plan backwards from my ending. Your editor works out what the reader needs to see along the way, and suggests which chapter each piece belongs in."
+ },
+ {
+  "id": "lab",
+  "caption": "Story Lab: is it a page-turner?",
+  "text": "Once you have a few chapters, visit the Story Lab. The page-turner analysis reads your book the way a reader would, and charts where they'd happily keep reading, and where they might put it down. It also shows the questions keeping readers hooked, and the emotional ups and downs of your story."
+ },
+ {
+  "id": "solve",
+  "caption": "Solvability test and stress tests",
+  "text": "The solvability test has three imaginary readers guess who did it after every chapter, so you can see when your mystery gets cracked. And the stress tests ask the tough questions, like what your killer would do to get away with it, and whether readers will root for your heroine."
+ },
+ {
+  "id": "polish",
+  "caption": "Polish: a professional finish",
+  "text": "On the Polish page, the health report checks your book's length, your chapter lengths, and words you might be leaning on too often. It's free and instant. You can also keep a style sheet, check names, and proofread each chapter."
+ },
+ {
+  "id": "publish",
+  "caption": "Publish: pitch, agents and submissions",
+  "text": "When the book is ready, the Publish page helps with the business side: your blurb, synopsis and query letter, a panel of imaginary agents to test it on, a list to track the agents you contact, and a submission package formatted the way agents expect."
+ },
+ {
+  "id": "series",
+  "caption": "Series: plan for more books",
+  "text": "And the Series page helps your book stand on its own while leaving room for more. When you're ready, one click starts book two, with all your characters and places carried over."
+ },
+ {
+  "id": "momentum",
+  "caption": "Today's scene, and your pace",
+  "text": "Back on Home, Today's scene suggests one small thing to write each day, and your pace shows when your first draft will be finished. Little and often is how books get written."
+ },
+ {
+  "id": "settings",
+  "caption": "Settings: backups and your finished book",
+  "text": "Finally, Settings. Choose a backup folder once, and your novel is copied there automatically. And when your book is ready, you can save it as a Word document in proper manuscript format, ready to send out."
+ },
+ {
+  "id": "close",
+  "caption": "You're the author. Enjoy writing!",
+  "text": "That's the tour. Remember: you're the author. Your editor is here to help you think and polish, but the story is yours. Whenever you're unsure what to do next, open the Guide. Happy writing."
+ }
 ]

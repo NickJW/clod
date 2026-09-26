@@ -559,3 +559,28 @@ html:not([data-motion='off']) .celebrate { animation: nj-modal .35s cubic-bezier
 html:not([data-motion='off']) .confetti { animation: nj-fall 1.8s cubic-bezier(.2,.6,.4,1) both; }
 html[data-motion='off'] .confetti { display: none; }
 @media (prefers-reduced-motion: reduce) { html * { animation: none !important; } }
+
+/* ================= Hover: no colour flashes — a gentle lift instead ================= */
+.btn, .chip, .ai-modes button, .nav button.nav-item, .ch-item, .selbar button, .link-list button, .tab, .menu button {
+  transition: transform .16s ease, box-shadow .16s ease, color .16s ease, border-color .16s ease;
+}
+.btn:hover { border-color: var(--rule); }
+.btn:not(.ghost):not(:disabled):hover { box-shadow: 0 6px 16px -8px rgba(60, 40, 20, .45); }
+html:not([data-motion='off']) .btn:not(.ghost):not(:disabled):hover { transform: translateY(-1px); }
+.btn.primary:hover { filter: none; background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 92%, white) 0%, var(--accent) 100%); }
+:root[data-theme='dark'] .btn.primary:hover { background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 92%, black) 0%, color-mix(in srgb, var(--accent) 80%, black) 100%); }
+html:not([data-motion='off']) .btn.primary:not(:disabled):hover { transform: translateY(-1px) scale(1.02); }
+.btn.brass:hover { background: color-mix(in srgb, var(--brass-soft) 80%, var(--paper)); }
+.btn.ghost:hover { background: transparent; color: var(--accent); }
+.chip:hover, .ai-modes button:hover { border-color: var(--brass); }
+html:not([data-motion='off']) .chip:hover, html:not([data-motion='off']) .ai-modes button:hover { transform: translateY(-1px); }
+.nav button.nav-item:hover { background: transparent; color: var(--accent); }
+html:not([data-motion='off']) .nav button.nav-item:not(.active):hover { transform: translateX(3px); }
+.ch-item:hover { background: transparent; color: var(--ink); }
+html:not([data-motion='off']) .ch-item:not(.active):hover { transform: translateX(3px); }
+.selbar button:hover { background: transparent; color: #e8cf9a; }
+.menu button:hover { background: transparent; color: var(--accent); }
+html:not([data-motion='off']) .menu button:hover { transform: translateX(3px); }
+.tab:hover { color: var(--accent); }
+.table tr.click:hover td { background: transparent; color: var(--accent); }
+.status-select:hover { border-color: var(--brass); }
