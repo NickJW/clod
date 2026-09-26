@@ -88,7 +88,7 @@ export function Onboarding() {
           </p>
           <p className="muted">A few quick questions will get you started. You can skip any of them and change everything later.</p>
           <p>
-            <TourButton className="btn" label="First, watch the 6½-minute video tour" />
+            <TourButton className="btn" label="First, watch the 7-minute video tour" />
           </p>
           <label className="field">
             <span className="lab">Does your book have a working title?</span>
