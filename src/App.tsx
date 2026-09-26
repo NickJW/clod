@@ -4,6 +4,7 @@ import { AIPanel } from './components/AIPanel';
 import { ManualHost } from './components/ManualHost';
 import { Celebrate } from './components/Celebrate';
 import { DriveBanner } from './components/DrivePanel';
+import { Helper } from './components/Helper';
 import { useDrive } from './services/drive';
 import { ConfirmHost, Icon, Toasts } from './components/ui';
 import { Onboarding } from './pages/Onboarding';
@@ -142,6 +143,7 @@ export default function App() {
       <ConfirmHost />
       <ManualHost />
       <Celebrate />
+      <Helper />
     </div>
   );
 }
