@@ -2,6 +2,7 @@
 // tied together with red string. She can pin and tie things herself, or let
 // "Pin it all up for me" lay it out from her story bible.
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { Board, Pin, PinKind, Yarn } from '../types';
 import { go, updateProject, useProject, type Page } from '../story/store';
 import { uid } from '../story/factory';
@@ -30,6 +31,9 @@ export function YarnBoard() {
   const [selected, setSelected] = useState<string | null>(null);
   const [selString, setSelString] = useState<string | null>(null);
   const [arranged, setArranged] = useState(0);
+  const [full, setFull] = useState(false);
+  const [tray, setTray] = useState(false);
+  const savedScroll = useRef<number | null>(null);
   const wrap = useRef<HTMLDivElement>(null);
   const motion = typeof document === 'undefined' || document.documentElement.dataset.motion !== 'off';
   // Yarn physics: strings wobble when tied or when a card is dropped, and draw themselves in.
@@ -83,15 +87,17 @@ export function YarnBoard() {
     if (!list.length) return setView({ z: Math.min(1, W / BOARD_W, H / BOARD_H), ox: 0, oy: 0 });
     const minX = Math.min(...list.map((x) => x.x)) - 30, minY = Math.min(...list.map((x) => x.y)) - 30;
     const maxX = Math.max(...list.map((x) => x.x + CARD_W[x.kind])) + 30, maxY = Math.max(...list.map((x) => x.y + (x.kind === 'character' ? 200 : 120))) + 30;
-    const z = Math.max(0.2, Math.min(1.1, W / (maxX - minX), H / (maxY - minY)));
-    setView({ z, ox: (W - (maxX - minX) * z) / 2 - minX * z, oy: (H - (maxY - minY) * z) / 2 - minY * z });
+    // Leave room for the floating controls along the top (they may wrap onto two rows).
+    const top = Math.max(...Array.from(w.querySelectorAll<HTMLElement>('.yarn-ui-left, .yarn-ui-right')).map((el) => el.offsetTop + el.offsetHeight), 0) + 10;
+    const z = Math.max(0.1, Math.min(1.4, (W - 20) / (maxX - minX), (H - top - 10) / (maxY - minY)));
+    setView({ z, ox: (W - (maxX - minX) * z) / 2 - minX * z, oy: top + (H - top - (maxY - minY) * z) / 2 - minY * z });
   };
   const zoomBy = (factor: number, at?: { x: number; y: number }) => {
     const w = wrap.current;
     if (!w) return;
     auto.current = false;
     setView((v) => {
-      const z = Math.max(0.2, Math.min(1.6, v.z * factor));
+      const z = Math.max(0.08, Math.min(2.5, v.z * factor));
       const px = at?.x ?? w.clientWidth / 2, py = at?.y ?? w.clientHeight / 2;
       const bx = (px - v.ox) / v.z, by = (py - v.oy) / v.z;
       return { z, ox: px - bx * z, oy: py - by * z };
@@ -104,13 +110,38 @@ export function YarnBoard() {
     const w = wrap.current;
     if (!w) return;
     const onWheel = (e: WheelEvent) => {
-      if (!e.ctrlKey) return;
+      if ((e.target as HTMLElement).closest?.('.yarn-tray')) return; // let the list scroll
       e.preventDefault();
       const r = w.getBoundingClientRect();
-      zoomRef.current(e.deltaY < 0 ? 1.1 : 1 / 1.1, { x: e.clientX - r.left, y: e.clientY - r.top });
+      // Mouse wheels send big steps, trackpads small ones (and pinch arrives with Ctrl): scale smoothly either way.
+      const step = e.deltaMode === 1 ? e.deltaY * 40 : e.deltaY;
+      const factor = Math.exp(-step * (e.ctrlKey ? 0.01 : 0.0022));
+      zoomRef.current(factor, { x: e.clientX - r.left, y: e.clientY - r.top });
     };
     w.addEventListener('wheel', onWheel, { passive: false });
     return () => w.removeEventListener('wheel', onWheel);
+  }, [full]);
+  // Full screen: Esc leaves; refit when switching either way.
+  useEffect(() => {
+    requestAnimationFrame(() => fit());
+    document.body.classList.toggle('yarn-full', full);
+    if (!full) {
+      if (savedScroll.current !== null) window.scrollTo({ top: savedScroll.current });
+      savedScroll.current = null;
+      return;
+    }
+    const k = (e: KeyboardEvent) => e.key === 'Escape' && setFull(false);
+    window.addEventListener('keydown', k);
+    return () => {
+      window.removeEventListener('keydown', k);
+      document.body.classList.remove('yarn-full');
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [full]);
+  // Opening the board brings it fully into view.
+  useEffect(() => {
+    const w = wrap.current;
+    if (w) window.scrollTo({ top: Math.max(0, w.getBoundingClientRect().top + window.scrollY - 64), behavior: 'smooth' });
   }, []);
   // Refit whenever the frame changes size (window resized, panel opened or closed).
   useEffect(() => {
@@ -208,28 +239,155 @@ export function YarnBoard() {
   const selItem = sel && sel.kind !== 'note' ? byId.get(sel.id) : undefined;
   const selStr = selString ? strings.find((s) => s.id === selString) : undefined;
 
-  return (
-    <>
-      <div className="card row" style={{ alignItems: 'flex-start' }}>
-        <div style={{ flex: 1, minWidth: 260 }}>
-          <b>Your yarn board</b>
-          <div className="small muted">
-            Drag cards anywhere. To tie a string, click a card's red pin, then click the card it connects to. Click a string to label or cut it. Or let the board pin everything up from what you've written.
+  const clearBoard = async () => {
+    if (await confirmDialog('Take everything down?', 'The board is cleared. Nothing in your story bible changes.', 'Clear the board', true)) updateProject({ board: { pins: [], strings: [] } });
+  };
+
+  const boardEl = (
+    <div
+      className={`yarn-wrap${linking ? ' linking' : ''}${full ? ' full' : ''}`}
+      ref={wrap}
+      onPointerDown={(e) => {
+        if ((e.target as HTMLElement).closest('.yarn-card, .yarn-hit, .yarn-tag, .yarn-ui')) return;
+        pan.current = { x: e.clientX, y: e.clientY, sl: view.ox, st: view.oy };
+        setSelected(null);
+        setSelString(null);
+        setTray(false);
+      }}
+      onPointerMove={(e) => {
+        if (linking) setCursor(toBoard(e));
+        if (!pan.current || drag) return;
+        auto.current = false;
+        const { sl, st, x, y } = pan.current;
+        setView((v) => ({ ...v, ox: sl + (e.clientX - x), oy: st + (e.clientY - y) }));
+      }}
+      onPointerUp={() => (pan.current = null)}
+      onPointerLeave={() => (pan.current = null)}
+    >
+      <div className="yarn-canvas" style={{ width: BOARD_W, height: BOARD_H, transform: `translate(${view.ox}px, ${view.oy}px) scale(${view.z})` }}>
+        {pins.length === 0 && (
+          <div className="yarn-empty">
+            <div className="yarn-empty-title">Nothing pinned yet</div>
+            <div>Press “Pin it all up for me”, or pin cards one at a time from the list below.</div>
           </div>
-        </div>
-        <div className="row" style={{ gap: 8 }}>
-          <button className="btn primary" onClick={() => void arrange()} disabled={!items.length}>
-            <Icon name="spark" size={16} /> Pin it all up for me
+        )}
+        {pins.map((pin) => {
+          const at = pinOf(pin.id)!;
+          const entering = Date.now() - arranged < 3000;
+          const it = byId.get(pin.id);
+          return (
+            <div
+              key={pin.id}
+              className={`yarn-card k-${pin.kind}${entering ? ' drop-in' : ''}${selected === pin.id ? ' sel' : ''}${linking === pin.id ? ' from' : ''}${drag?.id === pin.id ? ' dragging' : ''}`}
+              style={{
+                left: at.x,
+                top: at.y,
+                width: CARD_W[pin.kind],
+                transform: drag?.id === pin.id ? 'rotate(0deg) scale(1.05)' : `rotate(${pin.tilt}deg)`,
+                animationDelay: Date.now() - arranged < 3000 ? `${pins.indexOf(pin) * 18}ms` : undefined,
+              }}
+              onPointerDown={(e) => onCardDown(e, pin)}
+              onPointerMove={onCardMove}
+              onPointerUp={() => onCardUp(pin)}
+              title={it?.detail || pin.text}
+            >
+              <button
+                className="yarn-pin"
+                aria-label="Tie a string from here"
+                title="Tie a string from here"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (linking && linking !== pin.id) void tie(linking, pin.id);
+                  else setLinking(linking === pin.id ? null : pin.id);
+                }}
+              />
+              {pin.kind === 'character' && it && <div className="yarn-photo">{it.title.slice(0, 1)}</div>}
+              {pin.kind === 'secret' && <div className="yarn-stamp">Secret</div>}
+              <div className="yarn-sub">{pin.kind === 'note' ? 'Note' : it?.sub}</div>
+              <div className="yarn-title">{pin.kind === 'note' ? pin.text : it?.title}</div>
+            </div>
+          );
+        })}
+        <svg className="yarn-svg" width={BOARD_W} height={BOARD_H}>
+          <defs>
+            <filter id="yarn-shadow" x="-5%" y="-5%" width="110%" height="120%">
+              <feDropShadow dx="1" dy="2" stdDeviation="1.4" floodOpacity="0.35" />
+            </filter>
+          </defs>
+          {strings.map((s, i) => {
+            const g = geo(s);
+            const drawing = fresh.ids.has(s.id);
+            const style = drawing ? ({ '--len': Math.round(g.d * 1.15 + 40), animationDelay: fresh.stagger ? `${0.55 + i * 0.03}s` : '0s' } as React.CSSProperties) : undefined;
+            return (
+              <g key={s.id}>
+                <path d={g.path} className={`yarn-line${s.auto ? ' auto' : ''}${selString === s.id ? ' sel' : ''}${drawing ? ' drawing' : ''}`} style={style} filter="url(#yarn-shadow)" />
+                {!drawing && <path d={g.path} className="yarn-fiber" />}
+                <path
+                  d={g.path}
+                  className="yarn-hit"
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={() => (setSelString(selString === s.id ? null : s.id), setSelected(null), shake([s.id]))}
+                />
+              </g>
+            );
+          })}
+          {linking && cursor && pinOf(linking) && (() => {
+            const a = pinPoint(pinOf(linking)!);
+            const d = Math.hypot(cursor.x - a.x, cursor.y - a.y);
+            return <path className="yarn-preview" d={`M${a.x},${a.y} Q${(a.x + cursor.x) / 2},${(a.y + cursor.y) / 2 + 14 + d * 0.06} ${cursor.x},${cursor.y}`} />;
+          })()}
+        </svg>
+        {strings
+          .filter((s) => s.label && (!s.auto || !QUIET.has(s.label) || selString === s.id))
+          .map((s) => {
+            const { mid } = geo(s);
+            const mx = mid.x, my = mid.y;
+            return (
+              <div key={s.id} className={`yarn-tag${fresh.ids.has(s.id) ? ' late' : ''}`} style={{ left: mx, top: my, animationDelay: fresh.stagger ? '1.6s' : '0.5s' }} onClick={() => (setSelString(s.id), setSelected(null))}>
+                {s.label}
+              </div>
+            );
+          })}
+      </div>
+
+      {/* Floating controls, like a map */}
+      <div className="yarn-ui yarn-ui-left">
+        <button className="btn primary small" onClick={() => void arrange()} disabled={!items.length}>
+          <Icon name="spark" size={15} /> Pin it all up for me
+        </button>
+        <button className="btn small" onClick={() => void addNote()}>
+          Add a note
+        </button>
+        {unpinned.length > 0 && (
+          <button className={`btn small${tray ? ' on' : ''}`} onClick={() => setTray(!tray)}>
+            Pin more ({unpinned.length})
           </button>
-          <button className="btn" onClick={() => void addNote()}>
-            Add a note
+        )}
+        <AskButton action="hiddenConnections" label="Find hidden connections" className="btn small brass" run />
+      </div>
+      <div className="yarn-ui yarn-ui-right">
+        <button className="btn small" onClick={() => zoomBy(1 / 1.25)} aria-label="Zoom out" title="Zoom out">
+          −
+        </button>
+        <span className="yarn-zoom">{Math.round(zoom * 100)}%</span>
+        <button className="btn small" onClick={() => zoomBy(1.25)} aria-label="Zoom in" title="Zoom in">
+          +
+        </button>
+        <button className="btn small" onClick={() => fit()} title="Show the whole board">
+          Fit
+        </button>
+        <button className="btn small" onClick={() => (full || (savedScroll.current = window.scrollY), setFull(!full))} title={full ? 'Exit full screen (Esc)' : 'Full screen'}>
+          {full ? 'Exit full screen' : 'Full screen'}
+        </button>
+        {pins.length > 0 && (
+          <button className="btn small ghost" onClick={() => void clearBoard()} title="Take everything down">
+            Clear
           </button>
-          <AskButton action="hiddenConnections" label="Find hidden connections" run />
-        </div>
+        )}
       </div>
 
       {linking && (
-        <div className="yarn-hint">
+        <div className="yarn-ui yarn-hint">
           Now click the card that <b>{byId.get(linking)?.title ?? 'this note'}</b> connects to.{' '}
           <button className="btn small ghost" onClick={() => setLinking(null)}>
             Cancel
@@ -237,195 +395,15 @@ export function YarnBoard() {
         </div>
       )}
 
-      <div className="yarn-tools">
-        <button className="btn small" onClick={() => zoomBy(1 / 1.2)} aria-label="Zoom out">
-          −
-        </button>
-        <span className="small muted">{Math.round(zoom * 100)}%</span>
-        <button className="btn small ghost" onClick={() => fit()}>
-          Fit to screen
-        </button>
-        <button className="btn small" onClick={() => zoomBy(1.2)} aria-label="Zoom in">
-          +
-        </button>
-        <span className="spacer" />
-        {pins.length > 0 && (
-          <button
-            className="btn small ghost"
-            onClick={async () => {
-              if (await confirmDialog('Take everything down?', 'The board is cleared. Nothing in your story bible changes.', 'Clear the board', true)) updateProject({ board: { pins: [], strings: [] } });
-            }}
-          >
-            Clear the board
-          </button>
-        )}
-      </div>
-
-      <div
-        className={`yarn-wrap${linking ? ' linking' : ''}`}
-        ref={wrap}
-        onPointerDown={(e) => {
-          if ((e.target as HTMLElement).closest('.yarn-card, .yarn-hit, .yarn-tag')) return;
-          pan.current = { x: e.clientX, y: e.clientY, sl: view.ox, st: view.oy };
-          setSelected(null);
-          setSelString(null);
-        }}
-        onPointerMove={(e) => {
-          if (linking) setCursor(toBoard(e));
-          if (!pan.current || drag) return;
-          auto.current = false;
-          const { sl, st, x, y } = pan.current;
-          setView((v) => ({ ...v, ox: sl + (e.clientX - x), oy: st + (e.clientY - y) }));
-        }}
-        onPointerUp={() => (pan.current = null)}
-        onPointerLeave={() => (pan.current = null)}
-      >
-        <div>
-          <div className="yarn-canvas" style={{ width: BOARD_W, height: BOARD_H, transform: `translate(${view.ox}px, ${view.oy}px) scale(${view.z})` }}>
-            {pins.length === 0 && (
-              <div className="yarn-empty">
-                <div className="yarn-empty-title">Nothing pinned yet</div>
-                <div>Press “Pin it all up for me”, or pin cards one at a time from the list below.</div>
-              </div>
-            )}
-            {pins.map((pin) => {
-              const at = pinOf(pin.id)!;
-              const entering = Date.now() - arranged < 3000;
-              const it = byId.get(pin.id);
-              return (
-                <div
-                  key={pin.id}
-                  className={`yarn-card k-${pin.kind}${entering ? ' drop-in' : ''}${selected === pin.id ? ' sel' : ''}${linking === pin.id ? ' from' : ''}${drag?.id === pin.id ? ' dragging' : ''}`}
-                  style={{
-                    left: at.x,
-                    top: at.y,
-                    width: CARD_W[pin.kind],
-                    transform: drag?.id === pin.id ? 'rotate(0deg) scale(1.05)' : `rotate(${pin.tilt}deg)`,
-                    animationDelay: Date.now() - arranged < 3000 ? `${pins.indexOf(pin) * 18}ms` : undefined,
-                  }}
-                  onPointerDown={(e) => onCardDown(e, pin)}
-                  onPointerMove={onCardMove}
-                  onPointerUp={() => onCardUp(pin)}
-                  title={it?.detail || pin.text}
-                >
-                  <button
-                    className="yarn-pin"
-                    aria-label="Tie a string from here"
-                    title="Tie a string from here"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (linking && linking !== pin.id) void tie(linking, pin.id);
-                      else setLinking(linking === pin.id ? null : pin.id);
-                    }}
-                  />
-                  {pin.kind === 'character' && it && <div className="yarn-photo">{it.title.slice(0, 1)}</div>}
-                  {pin.kind === 'secret' && <div className="yarn-stamp">Secret</div>}
-                  <div className="yarn-sub">{pin.kind === 'note' ? 'Note' : it?.sub}</div>
-                  <div className="yarn-title">{pin.kind === 'note' ? pin.text : it?.title}</div>
-                </div>
-              );
-            })}
-            <svg className="yarn-svg" width={BOARD_W} height={BOARD_H}>
-              <defs>
-                <filter id="yarn-shadow" x="-5%" y="-5%" width="110%" height="120%">
-                  <feDropShadow dx="1" dy="2" stdDeviation="1.4" floodOpacity="0.35" />
-                </filter>
-              </defs>
-              {strings.map((s, i) => {
-                const g = geo(s);
-                const drawing = fresh.ids.has(s.id);
-                const style = drawing ? ({ '--len': Math.round(g.d * 1.15 + 40), animationDelay: fresh.stagger ? `${0.55 + i * 0.03}s` : '0s' } as React.CSSProperties) : undefined;
-                return (
-                  <g key={s.id}>
-                    <path d={g.path} className={`yarn-line${s.auto ? ' auto' : ''}${selString === s.id ? ' sel' : ''}${drawing ? ' drawing' : ''}`} style={style} filter="url(#yarn-shadow)" />
-                    {!drawing && <path d={g.path} className="yarn-fiber" />}
-                    <path
-                      d={g.path}
-                      className="yarn-hit"
-                      onPointerDown={(e) => e.stopPropagation()}
-                      onClick={() => (setSelString(selString === s.id ? null : s.id), setSelected(null), shake([s.id]))}
-                    />
-                  </g>
-                );
-              })}
-              {linking && cursor && pinOf(linking) && (() => {
-                const a = pinPoint(pinOf(linking)!);
-                const d = Math.hypot(cursor.x - a.x, cursor.y - a.y);
-                return <path className="yarn-preview" d={`M${a.x},${a.y} Q${(a.x + cursor.x) / 2},${(a.y + cursor.y) / 2 + 14 + d * 0.06} ${cursor.x},${cursor.y}`} />;
-              })()}
-            </svg>
-            {strings
-              .filter((s) => s.label && (!s.auto || !QUIET.has(s.label) || selString === s.id))
-              .map((s) => {
-                const { mid } = geo(s);
-                const mx = mid.x, my = mid.y;
-                return (
-                  <div key={s.id} className={`yarn-tag${fresh.ids.has(s.id) ? ' late' : ''}`} style={{ left: mx, top: my, animationDelay: fresh.stagger ? '1.6s' : '0.5s' }} onClick={() => (setSelString(s.id), setSelected(null))}>
-                    {s.label}
-                  </div>
-                );
-              })}
-          </div>
-        </div>
-      </div>
-
-      {selStr && (
-        <div className="card row yarn-detail">
-          <div style={{ flex: 1 }}>
-            <div className="small muted">String</div>
-            <b>{byId.get(selStr.a)?.title ?? 'Note'}</b> ↔ <b>{byId.get(selStr.b)?.title ?? 'Note'}</b>
-            {selStr.label && <span className="muted"> · {selStr.label}</span>}
-          </div>
-          <button
-            className="btn small"
-            onClick={async () => {
-              const label = await promptDialog('What connects them?', '', { value: selStr.label, ok: 'Save', optional: true });
-              if (label !== null) save({ strings: board.strings.map((s) => (s.id === selStr.id ? { ...s, label: label.trim(), auto: false } : s)) });
-            }}
-          >
-            Label it
-          </button>
-          <button className="btn small ghost" onClick={() => (save({ strings: board.strings.filter((s) => s.id !== selStr.id) }), setSelString(null))}>
-            Cut the string
-          </button>
-        </div>
-      )}
-
-      {sel && (
-        <div className="card row yarn-detail">
-          <div style={{ flex: 1, minWidth: 220 }}>
-            <div className="small muted">{sel.kind === 'note' ? 'Note' : selItem?.sub}</div>
-            <b className="serif" style={{ fontSize: '1.2rem' }}>{sel.kind === 'note' ? sel.text : selItem?.title}</b>
-            {selItem?.detail && <div className="small" style={{ marginTop: 4 }}>{selItem.detail}</div>}
-            <div className="tiny muted" style={{ marginTop: 4 }}>{strings.filter((s) => s.a === sel.id || s.b === sel.id).length} strings</div>
-          </div>
-          <button className="btn small" onClick={() => setLinking(sel.id)}>
-            Tie a string
-          </button>
-          {sel.kind === 'note' ? (
-            <button
-              className="btn small"
-              onClick={async () => {
-                const text = await promptDialog('Edit the note', '', { value: sel.text, ok: 'Save', long: true });
-                if (text?.trim()) save({ pins: pins.map((x) => (x.id === sel.id ? { ...x, text: text.trim() } : x)) });
-              }}
-            >
-              Edit
+      {tray && unpinned.length > 0 && (
+        <div className="yarn-ui yarn-tray">
+          <div className="row">
+            <b>Not on the board yet</b>
+            <span className="spacer" />
+            <button className="btn ghost small" onClick={() => setTray(false)} aria-label="Close">
+              <Icon name="x" size={14} />
             </button>
-          ) : (
-            <button className="btn small" onClick={() => go(KIND_PAGE[sel.kind])}>
-              Open its page
-            </button>
-          )}
-          <button className="btn small ghost" onClick={() => (save({ pins: pins.filter((x) => x.id !== sel.id), strings: board.strings.filter((s) => s.a !== sel.id && s.b !== sel.id) }), setSelected(null))}>
-            Take it down
-          </button>
-        </div>
-      )}
-
-      {unpinned.length > 0 && (
-        <div className="card">
-          <h3 style={{ fontSize: '1.05rem' }}>Not on the board yet</h3>
+          </div>
           {(['character', 'clue', 'secret', 'event', 'place'] as PinKind[]).map((k) => {
             const list = unpinned.filter((i) => i.kind === k);
             if (!list.length) return null;
@@ -443,6 +421,76 @@ export function YarnBoard() {
             );
           })}
         </div>
+      )}
+
+      {selStr && (
+        <div className="yarn-ui yarn-detail row">
+          <div style={{ flex: 1, minWidth: 200 }}>
+            <div className="tiny muted">String</div>
+            <b>{byId.get(selStr.a)?.title ?? 'Note'}</b> ↔ <b>{byId.get(selStr.b)?.title ?? 'Note'}</b>
+            {selStr.label && <span className="muted"> · {selStr.label}</span>}
+          </div>
+          <button
+            className="btn small"
+            onClick={async () => {
+              const label = await promptDialog('What connects them?', '', { value: selStr.label, ok: 'Save', optional: true });
+              if (label !== null) save({ strings: board.strings.map((x) => (x.id === selStr.id ? { ...x, label: label.trim(), auto: false } : x)) });
+            }}
+          >
+            Label it
+          </button>
+          <button className="btn small ghost" onClick={() => (save({ strings: board.strings.filter((x) => x.id !== selStr.id) }), setSelString(null))}>
+            Cut the string
+          </button>
+        </div>
+      )}
+
+      {sel && (
+        <div className="yarn-ui yarn-detail row">
+          <div style={{ flex: 1, minWidth: 200 }}>
+            <div className="tiny muted">{sel.kind === 'note' ? 'Note' : selItem?.sub}</div>
+            <b className="serif" style={{ fontSize: '1.15rem' }}>{sel.kind === 'note' ? sel.text : selItem?.title}</b>
+            {selItem?.detail && <div className="small" style={{ marginTop: 3 }}>{selItem.detail}</div>}
+            <div className="tiny muted" style={{ marginTop: 3 }}>{strings.filter((x) => x.a === sel.id || x.b === sel.id).length} strings</div>
+          </div>
+          <button className="btn small" onClick={() => setLinking(sel.id)}>
+            Tie a string
+          </button>
+          {sel.kind === 'note' ? (
+            <button
+              className="btn small"
+              onClick={async () => {
+                const text = await promptDialog('Edit the note', '', { value: sel.text, ok: 'Save', long: true });
+                if (text?.trim()) save({ pins: pins.map((x) => (x.id === sel.id ? { ...x, text: text.trim() } : x)) });
+              }}
+            >
+              Edit
+            </button>
+          ) : (
+            <button className="btn small" onClick={() => (setFull(false), go(KIND_PAGE[sel.kind]))}>
+              Open its page
+            </button>
+          )}
+          <button className="btn small ghost" onClick={() => (save({ pins: pins.filter((x) => x.id !== sel.id), strings: board.strings.filter((x) => x.a !== sel.id && x.b !== sel.id) }), setSelected(null))}>
+            Take it down
+          </button>
+        </div>
+      )}
+    </div>
+  );
+
+  return (
+    <>
+      <p className="small muted yarn-tip">
+        Drag cards anywhere. To tie a string, click a card's red pin, then the card it connects to. Scroll to zoom, drag the cork to move around.
+      </p>
+      {full ? (
+        <>
+          <div className="yarn-placeholder" />
+          {createPortal(boardEl, document.body)}
+        </>
+      ) : (
+        boardEl
       )}
     </>
   );

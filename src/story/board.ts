@@ -62,9 +62,11 @@ export function autoLayout(p: Project, strings: Omit<Yarn, 'id'>[], keep: Pin[] 
   if (!n) return [];
   const cx = BOARD_W / 2, cy = BOARD_H / 2;
   // Lay out inside a region shaped like the frame it will be shown in, so it fills the screen.
-  const a = Math.max(0.7, Math.min(2.4, aspect));
-  const RW = a >= BOARD_W / BOARD_H ? BOARD_W : Math.max(1000, BOARD_H * a);
-  const RH = a >= BOARD_W / BOARD_H ? Math.max(800, BOARD_W / a) : BOARD_H;
+  // ...and sized to how much is on it: a few cards sit close (so the board opens zoomed in), many spread out.
+  const a = Math.max(0.6, Math.min(2.6, aspect));
+  const area = Math.max(900 * 650, n * 62000);
+  const RW = Math.min(BOARD_W, Math.max(800, Math.sqrt(area * a)));
+  const RH = Math.min(BOARD_H, Math.max(560, area / RW));
   const x0 = (BOARD_W - RW) / 2, y0 = (BOARD_H - RH) / 2;
   const ring: Record<PinKind, number> = { character: 0.25, secret: 0.55, clue: 0.7, event: 0.85, place: 0.95, note: 0.9 };
   const idx = new Map(items.map((it, i) => [it.id, i]));
@@ -75,7 +77,7 @@ export function autoLayout(p: Project, strings: Omit<Yarn, 'id'>[], keep: Pin[] 
     const old = keep.find((k) => k.id === it.id);
     if (old) return { x: old.x, y: old.y };
     const a = (i / n) * Math.PI * 2 + rnd() * 0.5;
-    const r = ring[it.kind] * Math.min(cx, cy) * 0.95;
+    const r = ring[it.kind] * Math.min(RW, RH) * 0.45;
     return { x: cx + Math.cos(a) * r * (RW / RH), y: cy + Math.sin(a) * r };
   });
   const edges = strings.map((s) => [idx.get(s.a), idx.get(s.b)]).filter((e): e is [number, number] => e[0] !== undefined && e[1] !== undefined);
@@ -86,13 +88,13 @@ export function autoLayout(p: Project, strings: Omit<Yarn, 'id'>[], keep: Pin[] 
       for (let j = i + 1; j < n; j++) {
         const dx = pos[i].x - pos[j].x, dy = (pos[i].y - pos[j].y) * (RW / RH) * 0.9;
         const d2 = Math.max(dx * dx + dy * dy, 400);
-        const rep = 2.2e6 / d2 / Math.sqrt(d2);
+        const rep = (1.6e6 * Math.sqrt((RW * RH) / (1600 * 1100))) / d2 / Math.sqrt(d2);
         f[i].x += dx * rep; f[i].y += dy * rep; f[j].x -= dx * rep; f[j].y -= dy * rep;
       }
     for (const [a, b] of edges) {
       const dx = pos[b].x - pos[a].x, dy = pos[b].y - pos[a].y;
       const d = Math.sqrt(dx * dx + dy * dy) || 1;
-      const pull = (d - 210) * 0.035;
+      const pull = (d - Math.min(210, Math.sqrt((RW * RH) / n) * 0.9)) * 0.035;
       f[a].x += (dx / d) * pull; f[a].y += (dy / d) * pull; f[b].x -= (dx / d) * pull; f[b].y -= (dy / d) * pull;
     }
     for (let i = 0; i < n; i++) {
