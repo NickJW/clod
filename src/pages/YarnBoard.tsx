@@ -21,7 +21,10 @@ export function YarnBoard() {
   const board: Board = p.board ?? { pins: [], strings: [] };
   const items = useMemo(() => boardItems(p), [p]);
   const byId = useMemo(() => new Map(items.map((i) => [i.id, i])), [items]);
-  const [zoom, setZoom] = useState(0.6);
+  // The camera: the board is drawn at scale z, shifted by (ox, oy) inside a frame that fills the page.
+  const [view, setView] = useState({ z: 0.5, ox: 0, oy: 0 });
+  const zoom = view.z;
+  const auto = useRef(true); // keep refitting on resize until she zooms or pans herself
   const [drag, setDrag] = useState<{ id: string; dx: number; dy: number; x: number; y: number; moved: boolean } | null>(null);
   const [linking, setLinking] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
@@ -71,16 +74,52 @@ export function YarnBoard() {
     return { a, b, d, c, path: `M${a.x},${a.y} Q${c.x},${c.y} ${b.x},${b.y}`, mid: { x: (a.x + b.x) / 2, y: 0.25 * a.y + 0.5 * c.y + 0.25 * b.y } };
   };
 
-  // Zoom and scroll so every card is in view.
+  // Zoom and centre so every card is in view.
   const fit = (list: Pin[] = pins) => {
     const w = wrap.current;
-    if (!w || !list.length) return;
-    const minX = Math.min(...list.map((x) => x.x)) - 60, minY = Math.min(...list.map((x) => x.y)) - 60;
-    const maxX = Math.max(...list.map((x) => x.x + CARD_W[x.kind])) + 60, maxY = Math.max(...list.map((x) => x.y + 190)) + 40;
-    const z = Math.max(0.35, Math.min(1, Math.floor(Math.min(w.clientWidth / (maxX - minX), w.clientHeight / (maxY - minY)) * 100) / 100));
-    setZoom(z);
-    requestAnimationFrame(() => w.scrollTo({ left: minX * z - Math.max(0, (w.clientWidth - (maxX - minX) * z) / 2), top: minY * z - Math.max(0, (w.clientHeight - (maxY - minY) * z) / 2) }));
+    if (!w) return;
+    auto.current = true;
+    const W = w.clientWidth, H = w.clientHeight;
+    if (!list.length) return setView({ z: Math.min(1, W / BOARD_W, H / BOARD_H), ox: 0, oy: 0 });
+    const minX = Math.min(...list.map((x) => x.x)) - 30, minY = Math.min(...list.map((x) => x.y)) - 30;
+    const maxX = Math.max(...list.map((x) => x.x + CARD_W[x.kind])) + 30, maxY = Math.max(...list.map((x) => x.y + (x.kind === 'character' ? 200 : 120))) + 30;
+    const z = Math.max(0.2, Math.min(1.1, W / (maxX - minX), H / (maxY - minY)));
+    setView({ z, ox: (W - (maxX - minX) * z) / 2 - minX * z, oy: (H - (maxY - minY) * z) / 2 - minY * z });
   };
+  const zoomBy = (factor: number, at?: { x: number; y: number }) => {
+    const w = wrap.current;
+    if (!w) return;
+    auto.current = false;
+    setView((v) => {
+      const z = Math.max(0.2, Math.min(1.6, v.z * factor));
+      const px = at?.x ?? w.clientWidth / 2, py = at?.y ?? w.clientHeight / 2;
+      const bx = (px - v.ox) / v.z, by = (py - v.oy) / v.z;
+      return { z, ox: px - bx * z, oy: py - by * z };
+    });
+  };
+  // Pinch on a trackpad (or Ctrl + scroll) zooms around the pointer; plain scrolling still moves the page.
+  const zoomRef = useRef(zoomBy);
+  zoomRef.current = zoomBy;
+  useEffect(() => {
+    const w = wrap.current;
+    if (!w) return;
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey) return;
+      e.preventDefault();
+      const r = w.getBoundingClientRect();
+      zoomRef.current(e.deltaY < 0 ? 1.1 : 1 / 1.1, { x: e.clientX - r.left, y: e.clientY - r.top });
+    };
+    w.addEventListener('wheel', onWheel, { passive: false });
+    return () => w.removeEventListener('wheel', onWheel);
+  }, []);
+  // Refit whenever the frame changes size (window resized, panel opened or closed).
+  useEffect(() => {
+    const w = wrap.current;
+    if (!w || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => auto.current && fit());
+    ro.observe(w);
+    return () => ro.disconnect();
+  });
   const fitNext = useRef(true);
   useEffect(() => {
     if (fitNext.current && pins.length) {
@@ -93,18 +132,18 @@ export function YarnBoard() {
   const save = (next: Partial<Board>) => updateProject({ board: { pins, strings: board.strings.filter((s) => pins.some((x) => x.id === s.a) && pins.some((x) => x.id === s.b)), ...next } });
   const toBoard = (e: { clientX: number; clientY: number }) => {
     const r = wrap.current!.getBoundingClientRect();
-    return { x: (e.clientX - r.left + wrap.current!.scrollLeft) / zoom, y: (e.clientY - r.top + wrap.current!.scrollTop) / zoom };
+    return { x: (e.clientX - r.left - view.ox) / view.z, y: (e.clientY - r.top - view.oy) / view.z };
   };
   const visibleCentre = () => {
     const w = wrap.current!;
-    return { x: (w.scrollLeft + w.clientWidth / 2) / zoom, y: (w.scrollTop + w.clientHeight / 2) / zoom };
+    return { x: (w.clientWidth / 2 - view.ox) / view.z, y: (w.clientHeight / 2 - view.oy) / view.z };
   };
 
   const tie = async (a: string, b: string) => {
     setLinking(null);
     if (a === b || board.strings.some((s) => (s.a === a && s.b === b) || (s.a === b && s.b === a))) return;
     const na = byId.get(a)?.title ?? 'this', nb = byId.get(b)?.title ?? 'that';
-    const label = await promptDialog('What connects them?', `${na} and ${nb}. A few words is plenty, or leave it blank.`, { placeholder: 'e.g. "lied about the ferry"', ok: 'Tie the string' });
+    const label = await promptDialog('What connects them?', `${na} and ${nb}. A few words is plenty, or leave it blank.`, { placeholder: 'e.g. "lied about the ferry"', ok: 'Tie the string', optional: true });
     if (label === null) return;
     const id = uid();
     save({ strings: [...board.strings, { id, a, b, label: label.trim(), auto: false }] });
@@ -117,7 +156,8 @@ export function YarnBoard() {
     if (pins.length && !(await confirmDialog('Pin it all up again?', 'Everything gets re-arranged and the automatic strings are redrawn from your story bible. Strings you tied yourself stay.', 'Re-arrange'))) return;
     const implied = impliedStrings(p).filter((y) => !mine.some((m) => (m.a === y.a && m.b === y.b) || (m.a === y.b && m.b === y.a)));
     const all = [...mine, ...implied];
-    const laid = autoLayout(p, all);
+    const w = wrap.current;
+    const laid = autoLayout(p, all, [], w ? w.clientWidth / Math.max(1, w.clientHeight) : undefined);
     const notes = pins.filter((x) => x.kind === 'note');
     const newStrings = [...mine, ...implied.map((y) => ({ ...y, id: uid() }))];
     updateProject({ board: { pins: [...laid, ...notes], strings: newStrings } });
@@ -198,16 +238,14 @@ export function YarnBoard() {
       )}
 
       <div className="yarn-tools">
-        <button className="btn small" onClick={() => setZoom((z) => Math.max(0.35, Math.round((z - 0.1) * 100) / 100))} aria-label="Zoom out">
+        <button className="btn small" onClick={() => zoomBy(1 / 1.2)} aria-label="Zoom out">
           −
         </button>
         <span className="small muted">{Math.round(zoom * 100)}%</span>
-        {pins.length > 0 && (
-          <button className="btn small ghost" onClick={() => fit()}>
-            Fit to screen
-          </button>
-        )}
-        <button className="btn small" onClick={() => setZoom((z) => Math.min(1.2, Math.round((z + 0.1) * 100) / 100))} aria-label="Zoom in">
+        <button className="btn small ghost" onClick={() => fit()}>
+          Fit to screen
+        </button>
+        <button className="btn small" onClick={() => zoomBy(1.2)} aria-label="Zoom in">
           +
         </button>
         <span className="spacer" />
@@ -228,21 +266,22 @@ export function YarnBoard() {
         ref={wrap}
         onPointerDown={(e) => {
           if ((e.target as HTMLElement).closest('.yarn-card, .yarn-hit, .yarn-tag')) return;
-          pan.current = { x: e.clientX, y: e.clientY, sl: wrap.current!.scrollLeft, st: wrap.current!.scrollTop };
+          pan.current = { x: e.clientX, y: e.clientY, sl: view.ox, st: view.oy };
           setSelected(null);
           setSelString(null);
         }}
         onPointerMove={(e) => {
           if (linking) setCursor(toBoard(e));
           if (!pan.current || drag) return;
-          wrap.current!.scrollLeft = pan.current.sl - (e.clientX - pan.current.x);
-          wrap.current!.scrollTop = pan.current.st - (e.clientY - pan.current.y);
+          auto.current = false;
+          const { sl, st, x, y } = pan.current;
+          setView((v) => ({ ...v, ox: sl + (e.clientX - x), oy: st + (e.clientY - y) }));
         }}
         onPointerUp={() => (pan.current = null)}
         onPointerLeave={() => (pan.current = null)}
       >
-        <div style={{ width: BOARD_W * zoom, height: BOARD_H * zoom, position: 'relative' }}>
-          <div className="yarn-canvas" style={{ width: BOARD_W, height: BOARD_H, transform: `scale(${zoom})` }}>
+        <div>
+          <div className="yarn-canvas" style={{ width: BOARD_W, height: BOARD_H, transform: `translate(${view.ox}px, ${view.oy}px) scale(${view.z})` }}>
             {pins.length === 0 && (
               <div className="yarn-empty">
                 <div className="yarn-empty-title">Nothing pinned yet</div>
@@ -340,7 +379,7 @@ export function YarnBoard() {
           <button
             className="btn small"
             onClick={async () => {
-              const label = await promptDialog('What connects them?', '', { value: selStr.label, ok: 'Save' });
+              const label = await promptDialog('What connects them?', '', { value: selStr.label, ok: 'Save', optional: true });
               if (label !== null) save({ strings: board.strings.map((s) => (s.id === selStr.id ? { ...s, label: label.trim(), auto: false } : s)) });
             }}
           >

@@ -56,11 +56,16 @@ export function impliedStrings(p: Project): Omit<Yarn, 'id'>[] {
 }
 
 /** Force-directed layout: strings pull together, everything else pushes apart. */
-export function autoLayout(p: Project, strings: Omit<Yarn, 'id'>[], keep: Pin[] = []): Pin[] {
+export function autoLayout(p: Project, strings: Omit<Yarn, 'id'>[], keep: Pin[] = [], aspect = BOARD_W / BOARD_H): Pin[] {
   const items = boardItems(p);
   const n = items.length;
   if (!n) return [];
   const cx = BOARD_W / 2, cy = BOARD_H / 2;
+  // Lay out inside a region shaped like the frame it will be shown in, so it fills the screen.
+  const a = Math.max(0.7, Math.min(2.4, aspect));
+  const RW = a >= BOARD_W / BOARD_H ? BOARD_W : Math.max(1000, BOARD_H * a);
+  const RH = a >= BOARD_W / BOARD_H ? Math.max(800, BOARD_W / a) : BOARD_H;
+  const x0 = (BOARD_W - RW) / 2, y0 = (BOARD_H - RH) / 2;
   const ring: Record<PinKind, number> = { character: 0.25, secret: 0.55, clue: 0.7, event: 0.85, place: 0.95, note: 0.9 };
   const idx = new Map(items.map((it, i) => [it.id, i]));
   // Seeded pseudo-random, so the same board arranges the same way.
@@ -71,7 +76,7 @@ export function autoLayout(p: Project, strings: Omit<Yarn, 'id'>[], keep: Pin[] 
     if (old) return { x: old.x, y: old.y };
     const a = (i / n) * Math.PI * 2 + rnd() * 0.5;
     const r = ring[it.kind] * Math.min(cx, cy) * 0.95;
-    return { x: cx + Math.cos(a) * r * 1.5, y: cy + Math.sin(a) * r };
+    return { x: cx + Math.cos(a) * r * (RW / RH), y: cy + Math.sin(a) * r };
   });
   const edges = strings.map((s) => [idx.get(s.a), idx.get(s.b)]).filter((e): e is [number, number] => e[0] !== undefined && e[1] !== undefined);
   for (let step = 0; step < 400; step++) {
@@ -79,7 +84,7 @@ export function autoLayout(p: Project, strings: Omit<Yarn, 'id'>[], keep: Pin[] 
     const f = pos.map(() => ({ x: 0, y: 0 }));
     for (let i = 0; i < n; i++)
       for (let j = i + 1; j < n; j++) {
-        const dx = pos[i].x - pos[j].x, dy = (pos[i].y - pos[j].y) * 1.4;
+        const dx = pos[i].x - pos[j].x, dy = (pos[i].y - pos[j].y) * (RW / RH) * 0.9;
         const d2 = Math.max(dx * dx + dy * dy, 400);
         const rep = 2.2e6 / d2 / Math.sqrt(d2);
         f[i].x += dx * rep; f[i].y += dy * rep; f[j].x -= dx * rep; f[j].y -= dy * rep;
@@ -95,8 +100,8 @@ export function autoLayout(p: Project, strings: Omit<Yarn, 'id'>[], keep: Pin[] 
       f[i].y += (cy - pos[i].y) * 0.02;
       const m = Math.min(40 * cool + 2, Math.hypot(f[i].x, f[i].y));
       const len = Math.hypot(f[i].x, f[i].y) || 1;
-      pos[i].x = Math.min(BOARD_W - 150, Math.max(40, pos[i].x + (f[i].x / len) * m));
-      pos[i].y = Math.min(BOARD_H - 150, Math.max(40, pos[i].y + (f[i].y / len) * m));
+      pos[i].x = Math.min(x0 + RW - 150, Math.max(x0 + 40, pos[i].x + (f[i].x / len) * m));
+      pos[i].y = Math.min(y0 + RH - 150, Math.max(y0 + 40, pos[i].y + (f[i].y / len) * m));
     }
   }
   // Nudge apart any cards that still overlap (cards are roughly 190 x 130 on the board).
@@ -120,8 +125,8 @@ export function autoLayout(p: Project, strings: Omit<Yarn, 'id'>[], keep: Pin[] 
         }
       }
     for (const q of pos) {
-      q.x = Math.min(BOARD_W - 200, Math.max(30, q.x));
-      q.y = Math.min(BOARD_H - 200, Math.max(30, q.y));
+      q.x = Math.min(x0 + RW - 200, Math.max(x0 + 30, q.x));
+      q.y = Math.min(y0 + RH - 200, Math.max(y0 + 30, q.y));
     }
     if (!moved) break;
   }

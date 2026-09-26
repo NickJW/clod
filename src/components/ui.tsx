@@ -262,7 +262,7 @@ type ConfirmReq = {
   ok: string;
   danger?: boolean;
   /** When set, the dialog asks for text. */
-  input?: { value: string; placeholder: string; long?: boolean };
+  input?: { value: string; placeholder: string; long?: boolean; optional?: boolean };
   resolve: (v: boolean | string | null) => void;
 };
 let confirmSetter: ((r: ConfirmReq | null) => void) | null = null;
@@ -275,14 +275,14 @@ export function confirmDialog(title: string, body: string, ok = 'Yes', danger = 
 }
 
 /** Ask for a line (or paragraph) of text. Resolves null if cancelled. */
-export function promptDialog(title: string, body = '', opts: { value?: string; placeholder?: string; ok?: string; long?: boolean } = {}): Promise<string | null> {
+export function promptDialog(title: string, body = '', opts: { value?: string; placeholder?: string; ok?: string; long?: boolean; optional?: boolean } = {}): Promise<string | null> {
   return new Promise((resolve) => {
     if (!confirmSetter) return resolve(window.prompt(title, opts.value ?? ''));
     confirmSetter({
       title,
       body,
       ok: opts.ok ?? 'Save',
-      input: { value: opts.value ?? '', placeholder: opts.placeholder ?? '', long: opts.long },
+      input: { value: opts.value ?? '', placeholder: opts.placeholder ?? '', long: opts.long, optional: opts.optional },
       resolve: (v) => resolve(typeof v === 'string' ? v : null),
     });
   });
@@ -319,7 +319,7 @@ export function ConfirmHost() {
         <button className="btn" onClick={() => done(false)} autoFocus={!req.input}>
           Cancel
         </button>
-        <button className={`btn ${req.danger ? 'danger' : 'primary'}`} onClick={() => done(true)} disabled={!!req.input && !text.trim()}>
+        <button className={`btn ${req.danger ? 'danger' : 'primary'}`} onClick={() => done(true)} disabled={!!req.input && !req.input.optional && !text.trim()}>
           {req.ok}
         </button>
       </div>
