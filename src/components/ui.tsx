@@ -157,6 +157,15 @@ export function Term({ k, children }: { k: string; children?: ReactNode }) {
   );
 }
 
+/** A small typographic flourish between sections. */
+export function Ornament({ mark = '✦' }: { mark?: string }) {
+  return (
+    <div className="ornament" aria-hidden>
+      <span>{mark}</span>
+    </div>
+  );
+}
+
 export function Empty({ title, children }: { title: string; children?: ReactNode }) {
   return (
     <div className="empty">

@@ -11,7 +11,7 @@ import { Markdown, Modal } from '../components/ui';
 import { startStep } from './Guide';
 import { openEditor } from '../ai/session';
 import { chapterNumber, countWords, dailyGoal, manuscriptWords, readingTime, timeAgo, todayWords, writingStreak } from '../story/reference';
-import { promptDialog, TourButton } from '../components/ui';
+import { Ornament, promptDialog, TourButton } from '../components/ui';
 import { Icon } from '../components/ui';
 import { backupProject } from '../services/exporter';
 import type { ProjectStatus } from '../types';
@@ -37,9 +37,10 @@ export function Home() {
     <div className="page">
       <div className="hero">
         <div className="hero-book">
-          <div className="eyebrow">My novel</div>
-          <input className="title-input" style={{ fontSize: '2.7rem' }} value={p.title} onChange={(e) => updateProject({ title: e.target.value })} aria-label="Title" />
-          <div className="muted">{p.bible.genre}</div>
+          <div className="eyebrow">A novel{p.author ? ` by ${p.author}` : ''}</div>
+          <input className="title-input" style={{ fontSize: '3rem' }} value={p.title} onChange={(e) => updateProject({ title: e.target.value })} aria-label="Title" />
+          <Ornament />
+          <div className="muted serif" style={{ fontStyle: 'italic', fontSize: '1.1rem' }}>{p.bible.genre}</div>
           <div className="meta-grid">
             <div>
               <div className="k">Status</div>
@@ -75,27 +76,31 @@ export function Home() {
             </button>
           </div>
           {lastWords && (
-            <p className="serif muted" style={{ marginTop: 16, fontSize: '1.05rem', fontStyle: 'italic' }}>
-              You left off: “…{lastWords}”
-            </p>
+            <p className="pullquote">…{lastWords}</p>
           )}
         </div>
         <div className="helper-card">
           <div className="eyebrow">Your editor</div>
           <div className="serif" style={{ fontSize: '1.4rem', lineHeight: 1.25 }}>Not sure what to do next?</div>
-          <button className="btn big primary" onClick={() => startStep(nextStep(p))} title="Your step-by-step guide">
-            <Icon name="compass" /> Guide, step {nextStep(p) + 1}: {GUIDE[nextStep(p)].title}
+          <button className="btn primary" style={{ justifyContent: 'flex-start', whiteSpace: 'normal', textAlign: 'left', minHeight: 54 }} onClick={() => startStep(nextStep(p))} title="Your step-by-step guide">
+            <Icon name="compass" />
+            <span>
+              <span className="tiny" style={{ display: 'block', opacity: 0.85, letterSpacing: '.08em' }}>GUIDE · STEP {nextStep(p) + 1}</span>
+              {GUIDE[nextStep(p)].title}
+            </span>
           </button>
-          <TourButton className="btn big" label="Watch the video tour" />
-          <button className="btn big" onClick={() => openEditor({ actionId: 'stuck' })}>
-            <Icon name="compass" /> I'm stuck
-          </button>
-          <button className="btn big" onClick={() => openEditor({ actionId: 'workOn' }, true)}>
-            <Icon name="spark" /> What should I work on?
-          </button>
-          <button className="btn big" onClick={() => openEditor({ actionId: 'think' })}>
-            <Icon name="spark" /> Help me think
-          </button>
+          <div className="link-list">
+            <button onClick={() => openEditor({ actionId: 'stuck' })}>
+              <Icon name="compass" size={18} /> I'm stuck
+            </button>
+            <button onClick={() => openEditor({ actionId: 'workOn' }, true)}>
+              <Icon name="spark" size={18} /> What should I work on?
+            </button>
+            <button onClick={() => openEditor({ actionId: 'think' })}>
+              <Icon name="spark" size={18} /> Help me think
+            </button>
+          </div>
+          <TourButton className="btn ghost small" label="Watch the video tour" />
           <div className="small muted" style={{ marginTop: 'auto' }}>
             Your editor knows your characters, clues and plans. Nothing it suggests changes your book unless you say so.
           </div>

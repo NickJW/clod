@@ -11,7 +11,7 @@ import { readAloudSupported, useReadAloud } from '../editor/readAloud';
 import { checkProse } from '../editor/proseCheck';
 import { diffWords } from '../editor/diff';
 import { AIError, getAISettings } from '../ai/provider';
-import { Icon, Menu, Modal, confirmDialog, promptDialog, Term } from '../components/ui';
+import { Icon, Menu, Modal, Ornament, confirmDialog, promptDialog, Term } from '../components/ui';
 import { toast } from '../story/store';
 
 const STATUSES: ChapterStatus[] = ['Idea', 'Outlined', 'Drafting', 'Revising', 'Done'];
@@ -365,15 +365,13 @@ function ChapterEditor({ p, ch, onRead }: { p: Project; ch: Chapter; onRead: () 
           <button className={`btn ghost small${speech.listening ? ' on' : ''}`} onClick={speech.toggle} title='Dictate. Say "full stop", "comma" or "new paragraph" for punctuation.'>
             <Icon name="mic" size={16} /> {speech.listening ? 'Stop' : 'Talk'}
           </button>
-          <button className="btn ghost small" onClick={() => setModal('history')} title="Earlier versions of this chapter">
-            <Icon name="history" size={16} /> History
-          </button>
           <button className="btn ghost small" onClick={() => setState({ focusMode: true })} title="Hide everything except your page">
             <Icon name="focus" size={16} /> Focus
           </button>
           <Menu
             label={<>More ▾</>}
             items={[
+              { label: 'History: earlier versions', hint: 'Compare or restore any earlier version', onClick: () => setModal('history') },
               { label: 'Check my prose', hint: 'Free, instant, private', onClick: () => setModal('check') },
               { label: `Notes on this chapter${ch.comments.length ? ` (${ch.comments.length})` : ''}`, onClick: () => setModal('notes') },
               { label: 'Read the whole book', onClick: onRead },
@@ -416,6 +414,7 @@ function ChapterEditor({ p, ch, onRead }: { p: Project; ch: Chapter; onRead: () 
         <div className={`sheet${focus ? ' plain' : ''}`}>
           <div className="ch-no">Chapter {no}</div>
           <input className="ch-title" value={ch.title} onChange={(e) => patchItem('chapters', ch.id, { title: e.target.value })} placeholder="Chapter title" aria-label="Chapter title" />
+          <Ornament />
           <textarea
             ref={ta}
             className="manuscript"
@@ -848,7 +847,7 @@ function Reader({ p, onClose }: { p: Project; onClose: () => void }) {
                 .filter(Boolean)
                 .map((para, k) =>
                   /^(\*|#|\*\s?\*\s?\*)$/.test(para) ? (
-                    <p key={k} className="sep">*</p>
+                    <p key={k} className="sep">⁂</p>
                   ) : (
                     <p key={k} className={k === 0 ? 'first' : ''}>
                       {italicize(para)}
