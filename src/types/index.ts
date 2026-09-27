@@ -256,6 +256,8 @@ export interface Tone {
   avoid: string; // things the author never wants
   /** Authors and books she loves, and what she loves about them. */
   influences: string;
+  /** How strongly the influences should show in the writing. */
+  influenceStrength: 'subtle' | 'balanced' | 'strong';
   /** Concrete style guide distilled from her influences and her own pages. */
   styleProfile: string;
 }

@@ -339,6 +339,7 @@ export function demoProject(): Project {
     avoid: 'Lingering gore. Harm to animals. Explicit sex on the page.',
     influences:
       "Daphne du Maurier's Rebecca: the house and the past pressing on the present, a narrator who doubts herself. Agatha Christie: clues hidden in plain sight, a solution that's obvious afterwards. Ann Cleeves: a small place where everyone knows everyone, weather as mood. I love slow, quiet dread and dry humour.",
+    influenceStrength: 'balanced',
     styleProfile: '',
   };
   p.mystery = {

@@ -137,6 +137,20 @@ function ToneTab() {
           long
           serif
         />
+        <div className="row" style={{ marginBottom: 14 }}>
+          <span className="small" style={{ fontWeight: 600 }}>How strongly should they show?</span>
+          {(
+            [
+              ['subtle', 'Subtle', 'Mostly you, with a light touch of them'],
+              ['balanced', 'Balanced', 'Clearly both: you blended with them'],
+              ['strong', 'Strong', 'Their tone and pace lead; your eye keeps it yours'],
+            ] as const
+          ).map(([k, label, hint]) => (
+            <button key={k} className={`chip${(t.influenceStrength ?? 'balanced') === k ? ' on' : ''}`} title={hint} onClick={() => set({ influenceStrength: k })}>
+              {label}
+            </button>
+          ))}
+        </div>
         <div className="row">
           <span className="small muted">Then turn them into a style guide. Your editor follows it whenever it writes for you.</span>
           <span className="spacer" />

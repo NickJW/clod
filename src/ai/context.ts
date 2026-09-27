@@ -6,6 +6,7 @@ import type { CanonStatus, Character, Project, Tone } from '../types';
 import { CHARACTER_GROUPS, chapterLabel, characterName, charactersMentioned, countWords } from '../story/reference';
 import { getPref, setPref } from '../storage/db';
 import { ownVoiceSample } from '../editor/freshness';
+import { STRENGTH } from './prompts';
 
 export type Scope = 'local' | 'mystery' | 'whole' | 'minimal';
 
@@ -91,11 +92,14 @@ export function buildContext(p: Project, focus: Focus): string {
       (t.styleWords ? `\nDesired feel: ${t.styleWords}` : '') +
       (t.avoid ? `\nThe author never wants: ${t.avoid}` : ''),
   );
-  if (t.styleProfile?.trim()) out.push(`## Her style guide for this book (follow it in anything you write)\n${clip(t.styleProfile, 2600)}`);
-  if (t.influences?.trim() && !minimal)
+  if (t.styleProfile?.trim() || t.influences?.trim()) {
     out.push(
-      `## Books and authors she loves (influences, not templates)\n${clip(t.influences, 900)}\nTake the craft qualities she admires (pacing, atmosphere, interiority, restraint, how tension is built) and express them in HER voice. Never imitate an author's phrasing or signature style, and never mention these authors in the prose.`,
+      `## Her target style: her own voice blended with the authors she loves (${STRENGTH[t.influenceStrength ?? 'balanced']})\n` +
+        (t.styleProfile?.trim() ? `Her style guide, which you must actively apply in anything you write or revise:\n${clip(t.styleProfile, 2800)}\n` : '') +
+        (t.influences?.trim() && !minimal ? `The influences in her words: ${clip(t.influences, 900)}\n` : '') +
+        `Make the blend noticeable on the page (tone, humour, dialogue, sentence shape, pacing) at the strength above, while it stays recognisably hers. Use techniques, never an author's phrasing, and never mention these authors in the prose.`,
     );
+  }
   if (b.styleSheet?.trim()) out.push(`## House style sheet (follow it)\n${clip(b.styleSheet, 800)}`);
   const taste = tasteSummary(p.id);
   if (taste) out.push(`## What the author has taught her editor about her taste\n${taste}`);
@@ -306,7 +310,7 @@ export function buildContext(p: Project, focus: Focus): string {
     const sample = voiceSample(p, focus.chapterId);
     if (sample)
       out.push(
-        `## A sample of the author's own prose\nMatch its voice, rhythm, diction and level of restraint. Do not copy its content or reuse its images.\n"""${sample}"""`,
+        `## A sample of the author's own prose\n${p.tone.styleProfile?.trim() || p.tone.influences?.trim() ? 'This is the foundation of her voice (her ear for detail, her diction, what she notices). Keep it, and layer her target style above on top of it.' : 'Match its voice, rhythm, diction and level of restraint.'} Do not copy its content or reuse its images.\n"""${sample}"""`,
       );
   }
 

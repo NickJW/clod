@@ -74,6 +74,7 @@ export const defaultTone = (): Tone => ({
   styleWords: '',
   avoid: '',
   influences: '',
+  influenceStrength: 'balanced',
   styleProfile: '',
 });
 

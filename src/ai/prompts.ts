@@ -78,3 +78,10 @@ the full revised passage, and nothing else
 </notes>`,
   prose: `Respond with the prose only: no title, no preamble, no commentary. If you must flag a missing piece of information, put one line after the prose starting with "EDITOR'S NOTE:".`,
 };
+
+/** How strongly her influences show (Story Bible → Tone & feel). */
+export const STRENGTH: Record<'subtle' | 'balanced' | 'strong', string> = {
+  subtle: 'SUBTLE: her voice leads; the influences are a light seasoning a close reader might notice.',
+  balanced: 'BALANCED: an even blend; a reader who knows these authors should clearly feel them on every page, while it still sounds like her.',
+  strong: 'STRONG: the influences lead in tone, pacing, humour and dialogue; her voice keeps it hers through her eye for detail and her world.',
+};

@@ -2,7 +2,7 @@
 // role, decides how much of the story it needs (to keep cost down), and says
 // what shape of answer it expects so the UI can offer the right buttons.
 import type { IdeaCategory, Project } from '../types';
-import { FORMAT, type RoleId } from './prompts';
+import { FORMAT, STRENGTH, type RoleId } from './prompts';
 import type { Scope } from './context';
 import { characterName, chapterLabel, countWords } from '../story/reference';
 import { aiTellRate, draftAudit, freshnessBrief, manuscriptMetrics, ownVoiceSample, paragraphs, watchedParagraphs } from '../editor/freshness';
@@ -151,7 +151,7 @@ export const REVISION_LEVELS: { id: string; label: string; instruction: string }
   { id: 'suspense', label: 'More suspenseful', instruction: 'MORE SUSPENSEFUL: increase uncertainty, information asymmetry, vulnerability and anticipation. Delay or withhold; don\'t announce danger.' },
   { id: 'intimate', label: 'More intimate', instruction: 'MORE INTIMATE: increase emotional closeness and interiority for the point-of-view character, through small physical detail and restraint, not declarations.' },
   { id: 'faster', label: 'Make it faster', instruction: 'FASTER: tighten pacing. Cut summary and reflection, shorten paragraphs, enter later and leave earlier.' },
-  { id: 'human', label: 'Make it sound like me', instruction: 'MAKE IT SOUND LIKE ME: remove everything that reads as machine-written or generic (stock phrases, tidy three-part lists, explained emotions or explained significance, "not X but Y", em dashes, words AI overuses, symmetrical sentences, a neat moral at the end of a paragraph) and bring it into the author\'s own voice, using her sample as the model: her rhythm, her diction, her level of plainness and restraint, even her small imperfections. Keep every fact and event. Change as little as achieves this.' },
+  { id: 'human', label: 'Make it sound like me', instruction: 'MAKE IT SOUND LIKE ME: remove everything that reads as machine-written or generic (stock phrases, tidy three-part lists, explained emotions or explained significance, "not X but Y", em dashes, words AI overuses, symmetrical sentences, a neat moral at the end of a paragraph) and bring it into the author\'s own voice, using her sample as the model (her rhythm, her diction, her level of plainness, even her small imperfections), blended with her style guide if she has one. Keep every fact and event. Change as little as achieves this.' },
   { id: 'literary', label: 'More literary', instruction: 'MORE LITERARY: increase specificity, subtext, imagery and thematic resonance, with occasional striking language. Do not become purple.' },
 ];
 
@@ -669,7 +669,7 @@ Fix, in this order:
 1. Anything that reads as machine-written or generic: stock phrases, tidy three-part lists, "not X but Y", explained emotions or explained significance ("a small gesture that said more than…"), ominous closing lines, symmetrical sentences, over-polished sameness. Remove every em dash (—).
 2. These specific problems found in the draft:
 ${draftAudit(p, draft)}
-3. Voice: bring it closer to the author's own sample (rhythm, diction, restraint). Keep it consistent across the chapter without repeating words, images or sentence shapes.
+3. Voice: make it sound like her target style: her own voice (the sample) blended with her style guide and influences, if she has them, at the strength she chose. Keep it consistent across the chapter without repeating words, images or sentence shapes.
 4. Dialogue: sharpen it so each person sounds like themselves; cut lines that explain.
 5. Cut 5-10% of flab: throat-clearing, repeated beats, stage directions nobody needs.
 ${fresh ? `\nAlso make sure it avoids what the book has already used:\n${fresh}\n` : ''}
@@ -694,7 +694,7 @@ Respond with the full revised chapter only: no title, no commentary. Keep any "E
         scope: 'minimal',
         output: 'text',
         maxTokens: 1600,
-        user: `The author's influences (authors and books she loves, and what she loves about them):\n"""${p.tone.influences || '(none given yet)'}"""\n${own ? `\nA sample of her own prose:\n"""${own}"""\n` : ''}${req(i)}\n\nWrite a practical style guide for HER book: the craft qualities to take from these influences, translated into concrete instructions a writer can follow. Don't imitate or name any author's signature phrasing; describe techniques. Cover, in short bullets under these headings: Point of view and distance; Sentences and rhythm; Description and atmosphere; Dialogue; Suspense and what to withhold; Romance and tension; Chapter openings and endings; Words and habits to avoid. Where her own sample already has a strong quality, keep it and say so; her voice wins over any influence. Under 380 words. No preamble.`,
+        user: `The author's influences (authors and books she loves, and what she loves about them):\n"""${p.tone.influences || '(none given yet)'}"""\n${own ? `\nA sample of her own prose:\n"""${own}"""\n` : ''}${req(i)}\n\nWrite a practical style guide for HER book: a deliberate BLEND of her own voice and these influences, at this strength: ${STRENGTH[p.tone.influenceStrength ?? 'balanced']}\n\nStructure it exactly like this, in short, concrete bullets:\n"Keep from your own writing": the 3-4 most distinctive qualities of her sample (quote a few words as examples).\n"Bring in from the authors you love": the 6-8 most recognisable techniques of these influences that a reader who knows them would feel on the page: tone and attitude, humour, how dialogue works, sentence shape and pace, what the narration notices or withholds, how scenes and chapters open and end. Make each one specific enough to follow (for example "let characters say the cruel thing out loud, then cut away" rather than "sharper dialogue").\n"How they blend": 3-4 bullets on where the two meet and which leads where they clash (for example "keep your plain description, but let the dialogue take on their bite").\n"Avoid": 3-4 bullets.\nDescribe techniques, never copy phrasing or name an author's signature lines. Under 420 words. No preamble.`,
         craft: false,
       };
     },
