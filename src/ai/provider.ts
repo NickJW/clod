@@ -1,7 +1,6 @@
 // Model-agnostic AI interface. The rest of the app only talks to `AIProvider`,
 // so a different model or company can be added later without touching the UI.
 import { getPref, setPref } from '../storage/db';
-import { BUILT_IN_GEMINI_KEY } from '../config';
 import { anthropicProvider } from './anthropic';
 import { openaiProvider } from './openai';
 import { manualProvider } from './manual';
@@ -72,9 +71,16 @@ export function makeSetupLink(): string {
 
 /** If the page was opened with a setup link, save its settings and tidy the address bar. */
 export function consumeSetupLink(): boolean {
-  const m = location.hash.match(/#connect=([A-Za-z0-9+/=]+)/);
-  if (!m) return false;
+  const hash = location.hash;
+  if (!/#connect=/.test(hash)) return false;
   history.replaceState(null, '', location.pathname + location.search);
+  return applySetupLink(hash);
+}
+
+/** Apply a setup link's settings (also used when a link is pasted into the key box). */
+export function applySetupLink(text: string): boolean {
+  const m = text.match(/#connect=([A-Za-z0-9+/=]+)/);
+  if (!m) return false;
   try {
     const d = JSON.parse(atob(m[1])) as { p: string; k: string; m?: string; f?: string };
     if (!d.p || !d.k) return false;
@@ -104,7 +110,7 @@ interface StoredAI {
 const PROVIDER_DEFAULTS: Record<string, ProviderPrefs> = {
   anthropic: { apiKey: '', model: anthropicProvider.models[0].id, fastModel: 'claude-haiku-4-5-20251001' },
   openai: { apiKey: '', model: '', fastModel: '' },
-  gemini: { apiKey: BUILT_IN_GEMINI_KEY, model: 'gemini-flash-latest', fastModel: 'gemini-flash-lite-latest' },
+  gemini: { apiKey: '', model: 'gemini-flash-latest', fastModel: 'gemini-flash-lite-latest' },
   // Copy & paste needs no key; a placeholder marks it as "connected".
   manual: { apiKey: 'copy-and-paste', model: 'chatgpt.com', fastModel: 'chatgpt.com' },
 };
@@ -122,12 +128,12 @@ function stored(): StoredAI {
 export function getAISettings(): AISettings {
   const st = stored();
   const pp = st.providerId === 'manual' ? PROVIDER_DEFAULTS.manual : { ...PROVIDER_DEFAULTS[st.providerId], ...st.providers[st.providerId] };
-  // Gemini falls back to the built-in key (and default models) when she hasn't entered her own.
+  // Gemini falls back to the default models when none are chosen.
   const g = st.providerId === 'gemini';
   return {
     providerId: st.providerId,
     creativity: st.creativity,
-    apiKey: pp.apiKey || (g ? BUILT_IN_GEMINI_KEY : ''),
+    apiKey: pp.apiKey || '',
     model: pp.model || (g ? PROVIDER_DEFAULTS.gemini.model : ''),
     fastModel: pp.fastModel || (g ? PROVIDER_DEFAULTS.gemini.fastModel : ''),
   };

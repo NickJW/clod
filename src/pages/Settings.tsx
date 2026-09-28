@@ -1,6 +1,6 @@
 // Settings: connect the AI editor, appearance, export/import, backups, privacy.
 import { useEffect, useState } from 'react';
-import { getAISettings, getProvider, getUsage, makeSetupLink, resetUsage, saveAISettings } from '../ai/provider';
+import { applySetupLink, getAISettings, getProvider, getUsage, makeSetupLink, resetUsage, saveAISettings } from '../ai/provider';
 import { defaultOpenAIModels, listOpenAIModels } from '../ai/openai';
 import { defaultGeminiModels, listGeminiModels } from '../ai/gemini';
 import { CHAT_APPS, type ChatApp, type ChatWhere } from '../components/ManualHost';
@@ -27,7 +27,6 @@ import {
 } from '../services/exporter';
 import { Icon, confirmDialog } from '../components/ui';
 import { DriveSettings } from '../components/DrivePanel';
-import { BUILT_IN_GEMINI_KEY } from '../config';
 
 function FolderBackup() {
   const p = useProject();
@@ -286,7 +285,14 @@ function AISection() {
       <label className="field">
         <span className="lab">Your {provider.name} key</span>
         <div className="row" style={{ flexWrap: 'nowrap' }}>
-          <input className="input" type={showKey ? 'text' : 'password'} value={s.apiKey} onChange={(e) => save({ apiKey: e.target.value.trim() })} placeholder={setup.placeholder} autoComplete="off" spellCheck={false} />
+          <input className="input" type={showKey ? 'text' : 'password'} value={s.apiKey} onChange={(e) => {
+            const v = e.target.value.trim();
+            // Pasting a whole setup link here works too.
+            if (applySetupLink(v)) {
+              setS(getAISettings());
+              toast('Your AI editor is connected and ready.');
+            } else save({ apiKey: v });
+          }} placeholder={setup.placeholder} autoComplete="off" spellCheck={false} />
           <button className="btn small" onClick={() => setShowKey(!showKey)}>
             {showKey ? 'Hide' : 'Show'}
           </button>
@@ -297,9 +303,6 @@ function AISection() {
         <span className="hint" style={{ marginTop: 6 }}>Stored only in this browser on this computer. Never included in backups or exports. Each AI keeps its own key, so you can switch back and forth.</span>
       </label>
       {test === 'ok' && <div className="ok-box">✓ Connected. Your editor is ready.</div>}
-      {s.providerId === 'gemini' && s.apiKey === BUILT_IN_GEMINI_KEY && (
-        <p className="small muted">A free Google Gemini key is built in, so there's nothing to set up. You can paste your own key above instead.</p>
-      )}
       {s.apiKey && <SetupLink />}
       {test && test !== 'ok' && test !== 'testing' && <div className="err-box">{test}</div>}
 

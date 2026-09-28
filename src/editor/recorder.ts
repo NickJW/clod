@@ -2,7 +2,6 @@
 // then have Gemini write down what was said. (Safari's built-in speech recognition
 // depends on Siri settings and often returns nothing, which is why this exists.)
 import { getAISettings } from '../ai/provider';
-import { BUILT_IN_GEMINI_KEY } from '../config';
 
 export const recorderSupported = typeof navigator !== 'undefined' && !!navigator.mediaDevices?.getUserMedia && typeof window !== 'undefined' && !!(window.AudioContext || (window as unknown as { webkitAudioContext?: unknown }).webkitAudioContext);
 
@@ -88,10 +87,10 @@ const PROMPT = `This is a novelist dictating. Write down exactly what she says, 
 Spoken commands: "new paragraph" means start a new paragraph (a blank line); "new line" means a line break; "full stop" or "period" means "."; "comma" means ","; "question mark" means "?"; "exclamation mark" means "!"; "open quote" and "close quote" mean quotation marks.
 Don't add, fix, summarise or comment. If nothing was said, reply with nothing at all. Reply with only the text.`;
 
-/** Turn a recording into text with Gemini (her key if she uses Gemini, otherwise the built-in one). */
+/** Turn a recording into text with Gemini (needs her Gemini key). */
 export async function transcribe(audio: Blob, signal?: AbortSignal): Promise<string> {
   const s = getAISettings();
-  const key = (s.providerId === 'gemini' && s.apiKey) || BUILT_IN_GEMINI_KEY;
+  const key = s.providerId === 'gemini' ? s.apiKey : '';
   if (!key) throw new Error('no-key');
   const data = await blobToBase64(audio);
   const body = JSON.stringify({
