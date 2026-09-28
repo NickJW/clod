@@ -5,4 +5,4 @@ export const GOOGLE_CLIENT_ID = '';
 // Built-in Google Gemini key (free tier), so the AI editor works with no setup.
 // A key entered in Settings or through a setup link takes priority over this one.
 // To replace it: create a new key at aistudio.google.com/apikey and paste it here.
-export const BUILT_IN_GEMINI_KEY = '';
+export const BUILT_IN_GEMINI_KEY = 'AQ.Ab8RN6LWbw5un02WUIZUb5fgRHjEEfFNaJgEbdilNpLGbIkm7Q';
