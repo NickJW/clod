@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { getAISettings, getProvider } from '../ai/provider';
 import { getPref, setPref } from '../storage/db';
 import { go, useApp, type Page } from '../story/store';
-import { useSpeech } from '../editor/speech';
+import { joinSpoken, useSpeech } from '../editor/speech';
 import { PAGES, localAnswer, manualText } from '../help/manual';
 import { Icon } from './ui';
 
@@ -117,7 +117,7 @@ export function Helper() {
   const [hello, setHello] = useState(false);
   const [hop, setHop] = useState(false);
   const list = useRef<HTMLDivElement>(null);
-  const speech = useSpeech((t) => setQ((x) => (x ? x.replace(/\s*$/, ' ') : '') + t));
+  const speech = useSpeech((t) => setQ((x) => joinSpoken(x, t)));
 
   // A friendly hello once a day, after a moment.
   useEffect(() => {

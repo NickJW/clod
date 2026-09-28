@@ -77,7 +77,8 @@ interface PanelState {
 }
 
 let state: PanelState = {
-  open: getPref('panelOpen', true),
+  // On tablets and phones the editor is a drawer: start closed so it doesn't cover the page.
+  open: getPref('panelOpen', true) && window.innerWidth > 1200,
   mode: 'think',
   threads: [],
   prefill: null,

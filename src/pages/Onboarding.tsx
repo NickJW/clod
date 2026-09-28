@@ -8,7 +8,7 @@ import { DriveOpenButton } from '../components/DrivePanel';
 import { driveAvailable } from '../services/drive';
 import { timeAgo } from '../story/reference';
 import { readBackup } from '../services/exporter';
-import { useSpeech } from '../editor/speech';
+import { joinSpoken, useSpeech } from '../editor/speech';
 import { setPref } from '../storage/db';
 
 const KINDS = ['Psychological thriller', 'Dark mystery', 'Crime / detective', 'Gothic mystery', 'Romantic suspense', 'Domestic suspense', 'Not sure yet'];
@@ -214,7 +214,7 @@ export function Onboarding() {
 }
 
 function Voice({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder: string }) {
-  const s = useSpeech((t) => onChange((value ? value.replace(/\s*$/, ' ') : '') + t));
+  const s = useSpeech((t) => onChange(joinSpoken(value, t)));
   return (
     <div>
       <AutoTextarea className="input serif" value={value} onChange={onChange} placeholder={placeholder} minRows={4} />

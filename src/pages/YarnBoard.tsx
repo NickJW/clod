@@ -54,6 +54,8 @@ export function YarnBoard() {
     return () => cancelAnimationFrame(r);
   });
   const pan = useRef<{ x: number; y: number; sl: number; st: number } | null>(null);
+  // Two-finger pinch to zoom on iPad and iPhone (handled directly, so the browser doesn't zoom the page instead).
+  const pinch = useRef<number | null>(null);
 
   // Pins for items that no longer exist are hidden (and cleaned up on the next save).
   const pins = board.pins.filter((pin) => pin.kind === 'note' || byId.has(pin.id));
@@ -88,9 +90,10 @@ export function YarnBoard() {
     const minX = Math.min(...list.map((x) => x.x)) - 30, minY = Math.min(...list.map((x) => x.y)) - 30;
     const maxX = Math.max(...list.map((x) => x.x + CARD_W[x.kind])) + 30, maxY = Math.max(...list.map((x) => x.y + (x.kind === 'character' ? 200 : 120))) + 30;
     // Leave room for the floating controls along the top (they may wrap onto two rows).
-    const top = Math.max(...Array.from(w.querySelectorAll<HTMLElement>('.yarn-ui-left, .yarn-ui-right')).map((el) => el.offsetTop + el.offsetHeight), 0) + 10;
-    const z = Math.max(0.1, Math.min(1.4, (W - 20) / (maxX - minX), (H - top - 10) / (maxY - minY)));
-    setView({ z, ox: (W - (maxX - minX) * z) / 2 - minX * z, oy: top + (H - top - (maxY - minY) * z) / 2 - minY * z });
+    const top = Math.max(...Array.from(w.querySelectorAll<HTMLElement>('.yarn-ui-left, .yarn-ui-right')).filter((el) => el.offsetTop < H / 3).map((el) => el.offsetTop + el.offsetHeight), 0) + 10;
+    const bottom = Math.max(0, ...Array.from(w.querySelectorAll<HTMLElement>('.yarn-ui-right')).filter((el) => el.offsetTop >= H / 3).map((el) => H - el.offsetTop)) + 10;
+    const z = Math.max(0.1, Math.min(1.4, (W - 20) / (maxX - minX), (H - top - bottom) / (maxY - minY)));
+    setView({ z, ox: (W - (maxX - minX) * z) / 2 - minX * z, oy: top + (H - top - bottom - (maxY - minY) * z) / 2 - minY * z });
   };
   const zoomBy = (factor: number, at?: { x: number; y: number }) => {
     const w = wrap.current;
@@ -119,7 +122,41 @@ export function YarnBoard() {
       zoomRef.current(factor, { x: e.clientX - r.left, y: e.clientY - r.top });
     };
     w.addEventListener('wheel', onWheel, { passive: false });
-    return () => w.removeEventListener('wheel', onWheel);
+    const spread = (t: TouchList) => ({ d: Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY), x: (t[0].clientX + t[1].clientX) / 2, y: (t[0].clientY + t[1].clientY) / 2 });
+    const onTouchStart = (e: TouchEvent) => {
+      if (e.touches.length !== 2) return;
+      e.preventDefault();
+      pan.current = null;
+      setDrag(null);
+      pinch.current = spread(e.touches).d;
+    };
+    const onTouchMove = (e: TouchEvent) => {
+      if (e.touches.length !== 2 || !pinch.current) return;
+      e.preventDefault();
+      const s2 = spread(e.touches);
+      const r = w.getBoundingClientRect();
+      zoomRef.current(s2.d / pinch.current, { x: s2.x - r.left, y: s2.y - r.top });
+      pinch.current = s2.d;
+    };
+    const onTouchEnd = (e: TouchEvent) => {
+      if (e.touches.length < 2) pinch.current = null;
+    };
+    const noGesture = (e: Event) => e.preventDefault(); // Safari's own pinch-to-zoom-the-page
+    w.addEventListener('touchstart', onTouchStart, { passive: false });
+    w.addEventListener('touchmove', onTouchMove, { passive: false });
+    w.addEventListener('touchend', onTouchEnd);
+    w.addEventListener('touchcancel', onTouchEnd);
+    w.addEventListener('gesturestart', noGesture as EventListener);
+    w.addEventListener('gesturechange', noGesture as EventListener);
+    return () => {
+      w.removeEventListener('wheel', onWheel);
+      w.removeEventListener('touchstart', onTouchStart);
+      w.removeEventListener('touchmove', onTouchMove);
+      w.removeEventListener('touchend', onTouchEnd);
+      w.removeEventListener('touchcancel', onTouchEnd);
+      w.removeEventListener('gesturestart', noGesture as EventListener);
+      w.removeEventListener('gesturechange', noGesture as EventListener);
+    };
   }, [full]);
   // Full screen: Esc leaves; refit when switching either way.
   useEffect(() => {

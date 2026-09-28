@@ -1,6 +1,6 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { closeProject, go, useApp, type Page } from './story/store';
-import { AIPanel } from './components/AIPanel';
+import { AIPanel, toggle as toggleEditor } from './components/AIPanel';
 import { ManualHost } from './components/ManualHost';
 import { Celebrate } from './components/Celebrate';
 import { DriveBanner } from './components/DrivePanel';
@@ -49,6 +49,7 @@ export default function App() {
   const focus = useApp((s) => s.focusMode);
   const otherWindow = useApp((s) => s.otherWindow);
   const driveOn = useDrive((s) => s.enabled);
+  const [navOpen, setNavOpen] = useState(false);
 
   useEffect(() => applyAppearance(), []);
 
@@ -64,7 +65,8 @@ export default function App() {
 
   const words = manuscriptWords(project);
   return (
-    <div className={`app${focus ? ' focus' : page === 'write' ? ' compact' : ''}`}>
+    <div className={`app${focus ? ' focus' : page === 'write' ? ' compact' : ''}${navOpen ? ' nav-open' : ''}`}>
+      {navOpen && <div className="nav-backdrop" onClick={() => setNavOpen(false)} />}
       {!focus && (
         <nav className="nav" aria-label="Main">
           <div className="brand">
@@ -86,13 +88,13 @@ export default function App() {
                 {n.group}
               </div>
             ),
-            <button key={n.page} className={`nav-item${page === n.page ? ' active' : ''}`} onClick={() => go(n.page)} title={n.hint}>
+            <button key={n.page} className={`nav-item${page === n.page ? ' active' : ''}`} onClick={() => (go(n.page), setNavOpen(false))} title={n.hint}>
               <Icon name={n.icon} />
               <span className="lbl">{n.label}</span>
             </button>,
           ])}
           <div className="nav-sep" />
-          <button className={`nav-item${page === 'settings' ? ' active' : ''}`} onClick={() => go('settings')} title="AI, appearance, backups, export">
+          <button className={`nav-item${page === 'settings' ? ' active' : ''}`} onClick={() => (go('settings'), setNavOpen(false))} title="AI, appearance, backups, export">
             <Icon name="settings" />
             <span className="lbl">Settings & Backup</span>
           </button>
@@ -100,6 +102,17 @@ export default function App() {
         </nav>
       )}
       <main className="main">
+        {!focus && (
+          <header className="mobile-bar">
+            <button className="btn small" onClick={() => setNavOpen(true)} aria-label="Menu">
+              ☰ Menu
+            </button>
+            <span className="mobile-title">{page === 'settings' ? 'Settings' : NAV.find((n) => n.page === page)?.label}</span>
+            <button className="btn small brass" onClick={() => toggleEditor(true)}>
+              <Icon name="spark" size={15} /> Editor
+            </button>
+          </header>
+        )}
         {otherWindow && (
           <div className="guide-banner" style={{ background: 'var(--del)', color: 'var(--del-ink)' }}>
             <b>Nightjar is also open in another window or tab.</b>

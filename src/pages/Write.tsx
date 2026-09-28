@@ -6,7 +6,7 @@ import { newChapter, uid } from '../story/factory';
 import { chapterNumber, characterName, countWords, manuscriptWords, readingTime, saveChapterVersion, timeAgo, escapeRe, todayWords } from '../story/reference';
 import { registerEditor, setPendingJump, takePendingJump } from '../editor/bridge';
 import { maybeSummarize, openEditor, runQuiet } from '../ai/session';
-import { useSpeech } from '../editor/speech';
+import { joinSpoken, useSpeech } from '../editor/speech';
 import { readAloudSupported, useReadAloud } from '../editor/readAloud';
 import { checkProse } from '../editor/proseCheck';
 import { diffWords } from '../editor/diff';
@@ -259,8 +259,7 @@ function ChapterEditor({ p, ch, onRead }: { p: Project; ch: Chapter; onRead: () 
     if (!el) return;
     const s = el.selectionEnd;
     const before = el.value.slice(0, s);
-    const pad = before && !/\s$/.test(before) && !/^[.,!?]/.test(phrase) ? ' ' : '';
-    insertAt(s, s, pad + phrase);
+    insertAt(s, s, joinSpoken(before, phrase).slice(before.length));
   });
 
   const toggleItalic = () => {
@@ -306,6 +305,26 @@ function ChapterEditor({ p, ch, onRead }: { p: Project; ch: Chapter; onRead: () 
     }, 0);
   };
 
+  // On iPad and iPhone there's no mouse-up after selecting with a finger: watch the selection instead.
+  useEffect(() => {
+    if (!window.matchMedia?.('(pointer: coarse)').matches) return;
+    let t: ReturnType<typeof setTimeout> | null = null;
+    const onSel = () => {
+      if (t) clearTimeout(t);
+      t = setTimeout(() => {
+        const el = ta.current;
+        if (!el || document.activeElement !== el) return;
+        if (el.selectionEnd - el.selectionStart > 3) setSelBar({ x: 8, y: 64 });
+        else setSelBar(null);
+      }, 350);
+    };
+    document.addEventListener('selectionchange', onSel);
+    return () => {
+      document.removeEventListener('selectionchange', onSel);
+      if (t) clearTimeout(t);
+    };
+  }, []);
+
   const summaryStale = ch.summary && Math.abs(countWords(ch.text) - ch.summaryWordCount) > 150;
   const [summarizing, setSummarizing] = useState(false);
   const summarize = async () => {
@@ -326,6 +345,20 @@ function ChapterEditor({ p, ch, onRead }: { p: Project; ch: Chapter; onRead: () 
     <div className="editor-wrap">
       {!focus && (
         <div className="editor-bar">
+          {/* On iPad and iPhone the chapter list is hidden: pick the chapter here. */}
+          <select className="status-select ch-select" value={ch.id} onChange={(e) => {
+              if (e.target.value !== '+') return updateProject({ currentChapterId: e.target.value });
+              const c = newChapter(`Chapter ${p.chapters.length + 1}`);
+              addItem('chapters', c);
+              updateProject({ currentChapterId: c.id });
+            }} title="Chapter" aria-label="Chapter">
+            {p.chapters.map((c, i) => (
+              <option key={c.id} value={c.id}>
+                Ch. {i + 1}: {c.title || 'Untitled'}
+              </option>
+            ))}
+            <option value="+">+ New chapter</option>
+          </select>
           <select className="status-select" value={ch.status} onChange={(e) => patchItem('chapters', ch.id, { status: e.target.value as ChapterStatus })} title="Chapter status">
             {STATUSES.map((s) => (
               <option key={s}>{s}</option>

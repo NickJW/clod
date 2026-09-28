@@ -26,7 +26,7 @@ import { checkProse } from '../editor/proseCheck';
 import { recordTaste } from '../ai/context';
 import { applyReplacement, currentSelection, cursorSelection, insertText } from '../editor/bridge';
 import { diffWords } from '../editor/diff';
-import { useSpeech } from '../editor/speech';
+import { joinSpoken, useSpeech } from '../editor/speech';
 import { setPref } from '../storage/db';
 import { Icon, Markdown } from './ui';
 import type { CanonStatus } from '../types';
@@ -48,6 +48,8 @@ export function AIPanel() {
 
   const connected = !!getAISettings().apiKey;
   return (
+    <>
+    <div className="ai-backdrop" onClick={() => toggle(false)} />
     <aside className="ai" aria-label="Your editor">
       <div className="ai-head">
         <div className="row">
@@ -82,12 +84,13 @@ export function AIPanel() {
         {threads.length === 0 ? <QuickStart /> : threads.map((t) => <ThreadView key={t.id} t={t} />)}
       </div>
     </aside>
+    </>
   );
 }
 
-function toggle(open: boolean) {
+export function toggle(open: boolean) {
   setPanel({ open });
-  setPref('panelOpen', open);
+  if (window.innerWidth > 1200) setPref('panelOpen', open);
 }
 
 function Modes() {
@@ -109,7 +112,7 @@ function Compose({ page }: { page: string }) {
   const def = ACTIONS[mode];
   const [request, setRequest] = useState('');
   const [variant, setVariant] = useState('');
-  const speech = useSpeech((t) => setRequest((r) => (r ? r.replace(/\s*$/, ' ') : '') + t));
+  const speech = useSpeech((t) => setRequest((r) => joinSpoken(r, t)));
 
   useEffect(() => {
     setRequest(prefill?.request ?? '');
@@ -256,7 +259,7 @@ function QuickStart() {
 
 function ThreadView({ t }: { t: Thread }) {
   const [reply, setReply] = useState('');
-  const speech = useSpeech((x) => setReply((r) => (r ? r + ' ' : '') + x));
+  const speech = useSpeech((x) => setReply((r) => joinSpoken(r, x)));
   const p = useApp((s) => s.project)!;
   const chapterId = t.input.selection?.chapterId ?? t.input.chapterId ?? p.currentChapterId;
 

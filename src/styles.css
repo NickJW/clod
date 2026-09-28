@@ -732,3 +732,77 @@ body.yarn-full .nav, body.yarn-full aside.ai, body.yarn-full .helper, body.yarn-
 body.yarn-full { overflow: hidden; }
 body.yarn-full .main { container-type: normal; }
 .yarn-placeholder { height: max(460px, calc(100vh - 84px)); border-radius: 14px; background: var(--bg-2); }
+
+/* ---------- iPad and iPhone ---------- */
+.mobile-bar, .ai-backdrop, .nav-backdrop, .ch-select { display: none; }
+@keyframes drawer-in-right { from { transform: translateX(100%); } to { transform: none; } }
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+
+/* Tablets (every iPad, portrait or landscape): the editor is a drawer that slides over the page. */
+@media (max-width: 1200px) {
+  .app { grid-template-columns: 230px 1fr; }
+  .app.compact { grid-template-columns: 72px 1fr; }
+  .ai-backdrop { display: block; position: fixed; inset: 0; background: rgba(20, 15, 12, 0.32); z-index: 69; animation: fade-in 0.2s ease-out; }
+  .ai:not(.closed) { position: fixed; right: 0; top: 0; height: 100vh; height: 100dvh; width: min(420px, 100vw); z-index: 70; box-shadow: -12px 0 40px rgba(0, 0, 0, 0.2); animation: drawer-in-right 0.25s ease-out; }
+  .ai.closed { position: fixed; right: 0; top: 42%; width: auto; height: auto; padding: 0; border: 0; background: none; z-index: 40; }
+  .ai.closed .ai-closed-btn { border-right: 0; border-radius: 10px 0 0 10px; box-shadow: var(--shadow); }
+  .app:has(> aside.ai.closed) .helper, .app:has(> aside.ai:not(.closed)) .helper { right: 20px; }
+}
+@media (max-width: 1000px) {
+  .app { grid-template-columns: 76px 1fr; }
+  .nav-group { display: none; }
+  .ch-select { display: inline-block; max-width: 220px; }
+}
+
+/* Phones: a slim top bar with Menu and Editor; the menu slides in from the left. */
+@media (max-width: 700px) {
+  .app, .app.compact { grid-template-columns: 1fr; }
+  .mobile-bar { display: flex; position: sticky; top: 0; z-index: 20; align-items: center; gap: 8px; padding: 8px 10px; padding-top: max(8px, env(safe-area-inset-top)); background: color-mix(in srgb, var(--bg) 94%, transparent); backdrop-filter: blur(8px); border-bottom: 1px solid var(--line-2); }
+  .mobile-title { flex: 1; min-width: 0; text-align: center; font-family: var(--serif); font-size: 1.1rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .nav, .app.compact .nav { position: fixed; left: 0; top: 0; bottom: 0; height: auto; width: 272px; z-index: 75; transform: translateX(-105%); transition: transform 0.25s ease; box-shadow: 12px 0 40px rgba(0, 0, 0, 0.18); padding: 18px 12px; padding-top: max(18px, env(safe-area-inset-top)); }
+  .app.nav-open .nav { transform: none; }
+  .app .nav .lbl, .app .nav-book, .app .brand-name, .app .brand-sub, .app .nav-foot { display: revert; }
+  .app .nav .nav-group { display: block; }
+  .app .nav button.nav-item { justify-content: flex-start; padding: 10px 12px; }
+  .app .brand { justify-content: flex-start; padding: 4px 10px 18px; }
+  .nav-backdrop { display: block; position: fixed; inset: 0; background: rgba(20, 15, 12, 0.32); z-index: 74; animation: fade-in 0.2s ease-out; }
+  .ai.closed { display: none; }
+  .ai:not(.closed) { width: 100vw; }
+  .page { padding: 18px 14px 96px; }
+  .page-head h1, h1 { font-size: clamp(1.7rem, 7vw, 2.2rem); }
+  .sheet { padding: 30px 18px 70px; border-radius: 0; border-left: 0; border-right: 0; }
+  .editor-bar { top: 52px; padding: 6px 10px; }
+  .ch-select { max-width: 150px; }
+  .write .editor-bar .btn { padding-left: 8px; padding-right: 8px; }
+  .selbar { left: 8px !important; right: 8px; top: 110px !important; flex-wrap: wrap; justify-content: center; }
+  .demo-banner { padding: 8px 12px; font-size: 0.88rem; }
+  .helper { right: 12px !important; bottom: 12px; }
+  .helper-fab { width: 56px; height: 56px; }
+  .helper-panel { width: calc(100vw - 24px); height: min(480px, calc(100dvh - 110px)); }
+  .grid-2, .grid-3 { grid-template-columns: 1fr; }
+  .yarn-ui-left { max-width: calc(100% - 20px); }
+  .yarn-ui-right { top: auto; bottom: 10px; }
+  .modal { padding: 20px 18px; }
+}
+/* Bigger touch targets on touch screens. */
+@media (pointer: coarse) {
+  .btn.small { min-height: 38px; }
+  .chip { min-height: 38px; }
+  .yarn-pin { width: 26px; height: 26px; margin-left: -13px; top: -10px; }
+}
+@media (max-width: 1000px) {
+  .write { grid-template-columns: minmax(0, 1fr); }
+  .editor-wrap, .editor-scroll { min-width: 0; }
+  .editor-foot { flex-wrap: wrap; row-gap: 4px; }
+}
+@media (max-width: 700px) {
+  .editor-scroll { padding: 12px 0 0; }
+  .hero-book { padding: 26px 16px 22px; }
+  .hero-book h1, .hero-book .title-input { font-size: clamp(1.6rem, 8vw, 2.2rem); }
+  .hero-book .meta-grid .v { font-size: 1rem; }
+}
+.write { grid-template-columns: 230px minmax(0, 1fr); }
+.editor-wrap { min-width: 0; }
+@media (max-width: 1250px) { .write { grid-template-columns: 210px minmax(0, 1fr); } }
+@media (max-width: 1000px) { .write { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 700px) { .hero-book .status-select { font-size: 0.88rem; padding-left: 8px; padding-right: 4px; } .hero-book .meta-grid { font-size: 0.9rem; } }
