@@ -5,6 +5,7 @@ import { ManualHost } from './components/ManualHost';
 import { Celebrate } from './components/Celebrate';
 import { DriveBanner } from './components/DrivePanel';
 import { Helper } from './components/Helper';
+import { VoiceStatus } from './components/VoiceStatus';
 import { useDrive } from './services/drive';
 import { ConfirmHost, Icon, Toasts } from './components/ui';
 import { Onboarding } from './pages/Onboarding';
@@ -58,6 +59,7 @@ export default function App() {
     return (
       <>
         <Onboarding />
+        <VoiceStatus />
         <Toasts />
         <ConfirmHost />
       </>
@@ -157,6 +159,7 @@ export default function App() {
       <ManualHost />
       <Celebrate />
       <Helper />
+      <VoiceStatus />
     </div>
   );
 }

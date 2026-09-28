@@ -1,6 +1,7 @@
 // Model-agnostic AI interface. The rest of the app only talks to `AIProvider`,
 // so a different model or company can be added later without touching the UI.
 import { getPref, setPref } from '../storage/db';
+import { BUILT_IN_GEMINI_KEY } from '../config';
 import { anthropicProvider } from './anthropic';
 import { openaiProvider } from './openai';
 import { manualProvider } from './manual';
@@ -103,7 +104,7 @@ interface StoredAI {
 const PROVIDER_DEFAULTS: Record<string, ProviderPrefs> = {
   anthropic: { apiKey: '', model: anthropicProvider.models[0].id, fastModel: 'claude-haiku-4-5-20251001' },
   openai: { apiKey: '', model: '', fastModel: '' },
-  gemini: { apiKey: '', model: '', fastModel: '' },
+  gemini: { apiKey: BUILT_IN_GEMINI_KEY, model: 'gemini-flash-latest', fastModel: 'gemini-flash-lite-latest' },
   // Copy & paste needs no key; a placeholder marks it as "connected".
   manual: { apiKey: 'copy-and-paste', model: 'chatgpt.com', fastModel: 'chatgpt.com' },
 };
@@ -121,7 +122,15 @@ function stored(): StoredAI {
 export function getAISettings(): AISettings {
   const st = stored();
   const pp = st.providerId === 'manual' ? PROVIDER_DEFAULTS.manual : { ...PROVIDER_DEFAULTS[st.providerId], ...st.providers[st.providerId] };
-  return { providerId: st.providerId, creativity: st.creativity, apiKey: pp.apiKey ?? '', model: pp.model ?? '', fastModel: pp.fastModel ?? '' };
+  // Gemini falls back to the built-in key (and default models) when she hasn't entered her own.
+  const g = st.providerId === 'gemini';
+  return {
+    providerId: st.providerId,
+    creativity: st.creativity,
+    apiKey: pp.apiKey || (g ? BUILT_IN_GEMINI_KEY : ''),
+    model: pp.model || (g ? PROVIDER_DEFAULTS.gemini.model : ''),
+    fastModel: pp.fastModel || (g ? PROVIDER_DEFAULTS.gemini.fastModel : ''),
+  };
 }
 
 /** Save settings; key/model changes apply to the active provider (or the one named in the patch). */

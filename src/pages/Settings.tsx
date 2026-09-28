@@ -27,6 +27,7 @@ import {
 } from '../services/exporter';
 import { Icon, confirmDialog } from '../components/ui';
 import { DriveSettings } from '../components/DrivePanel';
+import { BUILT_IN_GEMINI_KEY } from '../config';
 
 function FolderBackup() {
   const p = useProject();
@@ -296,6 +297,9 @@ function AISection() {
         <span className="hint" style={{ marginTop: 6 }}>Stored only in this browser on this computer. Never included in backups or exports. Each AI keeps its own key, so you can switch back and forth.</span>
       </label>
       {test === 'ok' && <div className="ok-box">✓ Connected. Your editor is ready.</div>}
+      {s.providerId === 'gemini' && s.apiKey === BUILT_IN_GEMINI_KEY && (
+        <p className="small muted">A free Google Gemini key is built in, so there's nothing to set up. You can paste your own key above instead.</p>
+      )}
       {s.apiKey && <SetupLink />}
       {test && test !== 'ok' && test !== 'testing' && <div className="err-box">{test}</div>}
 

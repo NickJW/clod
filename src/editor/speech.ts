@@ -5,7 +5,8 @@
 // results as "final", and it stops listening after each pause. So we keep whatever
 // was heard and save it when listening ends, and quietly start listening again
 // until she presses the button to stop.
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { recorderSupported, startRecording, transcribe, type Recording } from './recorder';
 
 type Rec = {
   continuous: boolean;
@@ -30,6 +31,29 @@ export const isApple =
   (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1) ||
   (/Safari/.test(navigator.userAgent) && !/Chrome|Chromium|Edg|CriOS|FxiOS/.test(navigator.userAgent));
 
+/** Record-then-transcribe on Apple devices (and wherever the browser has no speech recognition). */
+export const useRecorder = recorderSupported && (isApple || !Ctor);
+
+// ---------- A shared status line ("Recording…", "Writing down what you said…") ----------
+export type VoiceState = { state: 'idle' | 'recording' | 'transcribing'; since: number };
+let voice: VoiceState = { state: 'idle', since: 0 };
+const voiceListeners = new Set<() => void>();
+function setVoice(v: VoiceState) {
+  voice = v;
+  voiceListeners.forEach((l) => l());
+}
+export function useVoiceStatus(): VoiceState {
+  return useSyncExternalStore(
+    (l) => (voiceListeners.add(l), () => voiceListeners.delete(l)),
+    () => voice,
+  );
+}
+let stopActive: (() => void) | null = null;
+/** Stop whichever Talk button is recording (used by the status pill). */
+export function stopVoice() {
+  stopActive?.();
+}
+
 export const KEYBOARD_TIP = 'You can also tap into the text and press the microphone key on the on-screen keyboard to dictate.';
 
 /** onFinal is called with each finished phrase. */
@@ -44,12 +68,62 @@ export function useSpeech(onFinal: (text: string) => void) {
   const restarted = useRef(false); // this session was started automatically after a pause
   const cb = useRef(onFinal);
   cb.current = onFinal;
+  const recording = useRef<Recording | null>(null);
+  const autoStop = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  async function startRec() {
+    setError('');
+    setListening(true);
+    setVoice({ state: 'recording', since: Date.now() });
+    stopActive = () => void stopRec();
+    try {
+      recording.current = await startRecording();
+      autoStop.current = setTimeout(() => void stopRec(), 180_000); // 3 minutes at a time
+    } catch (e) {
+      recording.current = null;
+      setListening(false);
+      setVoice({ state: 'idle', since: 0 });
+      const name = (e as Error).name;
+      setError(
+        name === 'NotAllowedError'
+          ? (isApple ? 'The microphone is blocked for this page. On iPad or iPhone: Settings → Safari → Microphone → Allow, then reload the page and try again.' : 'The microphone is blocked. Allow it for this page in your browser, then try again.')
+          : name === 'NotFoundError'
+            ? 'No microphone was found.'
+            : 'The microphone couldn\'t start. Please try again.',
+      );
+    }
+  }
+
+  async function stopRec() {
+    if (autoStop.current) clearTimeout(autoStop.current);
+    stopActive = null;
+    setListening(false);
+    const r = recording.current;
+    recording.current = null;
+    if (!r) return setVoice({ state: 'idle', since: 0 });
+    setVoice({ state: 'transcribing', since: Date.now() });
+    try {
+      const audio = await r.stop();
+      if (audio.size < 16000) return; // under half a second: nothing to write down
+      const text = await transcribe(audio);
+      if (text) cb.current(text);
+      else setError('I didn\'t catch anything. Try again, a little closer to the iPad.');
+    } catch (e) {
+      const m = (e as Error).message;
+      setError(m === 'no-key' ? 'Voice typing needs the AI editor connected first (Settings → AI).' : m === 'quota' ? 'Voice typing has reached today\'s free limit. Please type for now, or try again tomorrow.' : 'Couldn\'t write down what you said just now. Please check the internet connection and try again.');
+    } finally {
+      setVoice({ state: 'idle', since: 0 });
+    }
+  }
 
   useEffect(
     () => () => {
       want.current = false;
       rec.current?.stop();
+      // Leaving the page mid-recording: keep what was said.
+      if (recording.current) void stopRec();
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   );
 
@@ -117,6 +191,7 @@ export function useSpeech(onFinal: (text: string) => void) {
   }
 
   function start() {
+    if (useRecorder) return void startRec();
     if (!Ctor) {
       setError('Talking isn\'t supported in this browser. It works in Safari on iPad, Google Chrome and Microsoft Edge. ' + KEYBOARD_TIP);
       return;
@@ -135,6 +210,7 @@ export function useSpeech(onFinal: (text: string) => void) {
   }
 
   function stop() {
+    if (useRecorder) return void stopRec();
     want.current = false;
     // Save what was heard right away (Safari may not send a final result after stop).
     commitPending();

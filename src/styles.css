@@ -806,3 +806,10 @@ body.yarn-full .main { container-type: normal; }
 @media (max-width: 1250px) { .write { grid-template-columns: 210px minmax(0, 1fr); } }
 @media (max-width: 1000px) { .write { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 700px) { .hero-book .status-select { font-size: 0.88rem; padding-left: 8px; padding-right: 4px; } .hero-book .meta-grid { font-size: 0.9rem; } }
+.voice-pill { position: fixed; top: max(12px, env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); z-index: 95; display: flex; align-items: center; gap: 10px; padding: 8px 10px 8px 16px; border-radius: 99px; background: var(--ink); color: var(--bg); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25); font-weight: 500; animation: pip-pop 0.25s ease-out; }
+.voice-pill .btn { background: var(--paper); color: var(--ink); }
+.voice-pill.transcribing { padding-right: 16px; }
+.voice-dot { width: 11px; height: 11px; border-radius: 50%; background: #e0343d; animation: voice-pulse 1.2s ease-in-out infinite; }
+.voice-spin { width: 14px; height: 14px; border-radius: 50%; border: 2px solid color-mix(in srgb, var(--bg) 35%, transparent); border-top-color: var(--bg); animation: voice-spin 0.8s linear infinite; }
+@keyframes voice-pulse { 50% { opacity: 0.35; transform: scale(0.8); } }
+@keyframes voice-spin { to { transform: rotate(360deg); } }
