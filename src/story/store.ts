@@ -98,6 +98,20 @@ export function useProject(): Project {
 // ---------- Saving ----------
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
+// Each window or tab has its own id, and they tell each other when they open or save a novel.
+const tabId = Math.random().toString(36).slice(2);
+const channel = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('nightjar') : null;
+/** This window has changes that aren't stored yet. Only then does it write, so an old window never overwrites newer work. */
+let dirty = false;
+/** The version of the open novel this window last loaded or saved. */
+let baseRev = 0;
+let baseProject: Project | null = null;
+
+/** The writing itself, ignoring bookkeeping (which chapter is open, AI summaries, timestamps). */
+function writingOf(p: Project): string {
+  const { updatedAt: _u, lastBackupAt: _b, lab: _l, currentChapterId: _c, ...rest } = p as Project & { lab?: unknown; lastBackupAt?: unknown };
+  return JSON.stringify({ ...rest, chapters: p.chapters.map(({ versions: _v, updatedAt: _cu, summary: _s, summaryWordCount: _sw, ...c }) => c) });
+}
 let lastFolderTry = 0;
 let lastEmergency = 0;
 
@@ -128,13 +142,16 @@ function runFlushHooks() {
 function saveNow() {
   runFlushHooks();
   const p = state.project;
-  if (!p) return;
-  db.writeEmergencyCopy(p);
+  if (!p || !dirty) return;
+  // Another window saved newer work: don't write this window's older copy over it.
+  const rev = db.getRev(p.id);
+  if (!(rev && rev.tab !== tabId && rev.at > baseRev)) db.writeEmergencyCopy(p);
   lastEmergency = Date.now();
   void flushSave();
 }
 
 function scheduleSave() {
+  dirty = true;
   if (saveTimer) clearTimeout(saveTimer);
   setState({ saveState: 'saving' });
   saveTimer = setTimeout(flushSave, 700);
@@ -148,10 +165,23 @@ export async function flushSave(): Promise<void> {
   }
   const p = state.project;
   if (!p) return;
+  if (!dirty) {
+    if (state.saveState === 'saving') setState({ saveState: 'saved' });
+    return;
+  }
   try {
+    if (await takeOtherWindowsWork(p)) return;
     await db.saveProject(p);
+    db.setRev(p.id, { at: p.updatedAt, tab: tabId });
+    baseRev = p.updatedAt;
+    baseProject = p;
+    channel?.postMessage({ type: 'saved', projectId: p.id, tab: tabId });
     // Only say "Saved" if nothing changed while we were writing.
-    if (state.project === p) setState({ saveState: 'saved', lastSavedAt: Date.now(), saveError: '' });
+    if (state.project === p) {
+      dirty = false;
+      setState({ saveState: 'saved', lastSavedAt: Date.now(), saveError: '' });
+    }
+    void db.askToKeepStorage();
     saveListeners.forEach((fn) => fn(p));
     if (Date.now() - lastEmergency > 60000) {
       lastEmergency = Date.now();
@@ -173,6 +203,42 @@ export async function flushSave(): Promise<void> {
   }
 }
 
+/**
+ * If another window or tab saved newer work on this novel, switch to it instead of writing over it.
+ * If this window also has unsaved changes, those are kept as a separate copy in her novels list.
+ */
+async function takeOtherWindowsWork(p: Project): Promise<boolean> {
+  const rev = db.getRev(p.id);
+  if (!rev || rev.tab === tabId || rev.at <= baseRev) return false;
+  const newer = await db.loadProject(p.id);
+  if (!newer) return false;
+  // Keep this window's copy only if it holds writing that isn't in either the newer version or what it started from.
+  if (dirty && (!baseProject || writingOf(p) !== writingOf(baseProject)) && writingOf(p) !== writingOf(newer)) {
+    const title = `${p.title} (changes from another window)`;
+    await db.saveProject({ ...p, id: uid(), title, updatedAt: Date.now() });
+    toast(`This novel was also changed in another window. Nothing is lost: the newer version is open, and this window's changes are kept as "${title}" in your novels.`, 'error');
+  }
+  dirty = false;
+  baseRev = Math.max(rev.at, newer.updatedAt);
+  baseProject = newer;
+  if (saveTimer) clearTimeout(saveTimer);
+  saveTimer = null;
+  setState({ project: normalizeProject(newer), saveState: 'saved', saveError: '' });
+  await refreshProjects();
+  return true;
+}
+
+/** Coming back to this window: pick up anything saved in another one. */
+function checkOtherWindows() {
+  const p = state.project;
+  if (!p) return;
+  runFlushHooks();
+  const rev = db.getRev(p.id);
+  if (rev && rev.tab !== tabId && rev.at > baseRev) void takeOtherWindowsWork(p).catch(() => undefined);
+}
+window.addEventListener('focus', checkOtherWindows);
+window.addEventListener('pageshow', checkOtherWindows);
+
 window.addEventListener('beforeunload', (e) => {
   const pending = state.saveState === 'saving' || state.saveState === 'error' || saveTimer !== null;
   saveNow();
@@ -181,12 +247,11 @@ window.addEventListener('beforeunload', (e) => {
 window.addEventListener('pagehide', saveNow);
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden') saveNow();
+  else checkOtherWindows();
 });
 
 // ---------- Only one window per novel ----------
 // Two windows editing the same novel would overwrite each other's work, so warn clearly.
-const tabId = Math.random().toString(36).slice(2);
-const channel = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('nightjar') : null;
 channel?.addEventListener('message', (e: MessageEvent<{ type: string; projectId: string; tab: string }>) => {
   const m = e.data;
   const mine = state.project?.id;
@@ -196,6 +261,7 @@ channel?.addEventListener('message', (e: MessageEvent<{ type: string; projectId:
     setState({ otherWindow: true });
   } else if (m.type === 'here') setState({ otherWindow: true });
   else if (m.type === 'closed') setState({ otherWindow: false });
+  else if (m.type === 'saved') checkOtherWindows();
 });
 function announceOpen(projectId: string) {
   channel?.postMessage({ type: 'open', projectId, tab: tabId });
@@ -237,10 +303,16 @@ export async function openProject(id: string): Promise<void> {
     toast('Recovered your latest changes.');
   }
   const project = normalizeProject(raw);
+  dirty = false;
+  baseRev = Math.max(project.updatedAt ?? 0, db.getRev(id)?.at ?? 0);
+  baseProject = project;
   db.setPref('lastProject', id);
   setState({ project, page: 'home', otherWindow: false, startNew: false });
   announceOpen(project.id);
-  if (raw === emergency || (emergency && raw.updatedAt === emergency.updatedAt)) void flushSave();
+  if (raw === emergency || (emergency && raw.updatedAt === emergency.updatedAt)) {
+    dirty = true;
+    void flushSave();
+  }
 }
 
 export async function createProject(p: Project): Promise<void> {
@@ -249,6 +321,10 @@ export async function createProject(p: Project): Promise<void> {
   p = { ...p, updatedAt: Date.now() };
   await db.saveProject(p);
   db.writeEmergencyCopy(p);
+  db.setRev(p.id, { at: p.updatedAt, tab: tabId });
+  dirty = false;
+  baseRev = p.updatedAt;
+  baseProject = p;
   db.setPref('lastProject', p.id);
   setState({ project: p, page: 'home', otherWindow: false, startNew: false });
   announceOpen(p.id);
@@ -268,7 +344,11 @@ export async function adoptProject(p: Project, open = true): Promise<void> {
   }
   await db.saveProject(p);
   db.writeEmergencyCopy(p);
+  db.setRev(p.id, { at: p.updatedAt, tab: tabId });
   if (open) {
+    dirty = false;
+    baseRev = p.updatedAt;
+    baseProject = p;
     db.setPref('lastProject', p.id);
     setState({ project: p, page: 'home', otherWindow: false, startNew: false });
     announceOpen(p.id);

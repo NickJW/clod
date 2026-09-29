@@ -91,6 +91,36 @@ export function writeEmergencyCopy(p: Project): void {
   }
 }
 
+/** Which window saved a novel last, and the version it saved (lets windows notice each other's work). */
+export interface Rev {
+  at: number;
+  tab: string;
+}
+export function getRev(id: string): Rev | null {
+  try {
+    const raw = localStorage.getItem(`nightjar:rev:${id}`);
+    return raw ? (JSON.parse(raw) as Rev) : null;
+  } catch {
+    return null;
+  }
+}
+export function setRev(id: string, rev: Rev): void {
+  try {
+    localStorage.setItem(`nightjar:rev:${id}`, JSON.stringify(rev));
+  } catch {
+    /* best-effort */
+  }
+}
+
+/** Ask the browser to keep this site's storage (Safari and others may otherwise clear it after a while). */
+export async function askToKeepStorage(): Promise<void> {
+  try {
+    if (navigator.storage?.persist && !(await navigator.storage.persisted())) await navigator.storage.persist();
+  } catch {
+    /* not supported */
+  }
+}
+
 export function deleteProjectData(id: string): Promise<unknown> {
   try {
     localStorage.removeItem(`nightjar:last:${id}`);
