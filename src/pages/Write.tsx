@@ -1,16 +1,17 @@
 // The writing room: chapter list, a quiet manuscript page, and gentle tools.
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Chapter, ChapterStatus, Project } from '../types';
-import { addItem, getState, moveItem, patchItem, removeItem, setState, updateProject, useApp, useProject } from '../story/store';
+import { addItem, getState, moveItem, patchItem, registerFlushHook, removeItem, setState, updateProject, useApp, useProject } from '../story/store';
 import { newChapter, uid } from '../story/factory';
-import { chapterNumber, characterName, countWords, manuscriptWords, readingTime, saveChapterVersion, timeAgo, escapeRe } from '../story/reference';
-import { registerEditor } from '../editor/bridge';
-import { openEditor, runQuiet } from '../ai/session';
-import { useSpeech } from '../editor/speech';
+import { chapterNumber, characterName, countWords, manuscriptWords, readingTime, saveChapterVersion, timeAgo, escapeRe, todayWords } from '../story/reference';
+import { registerEditor, setPendingJump, takePendingJump } from '../editor/bridge';
+import { maybeSummarize, openEditor, runQuiet } from '../ai/session';
+import { joinSpoken, setVoiceTarget, useSpeech, useVoiceStatus } from '../editor/speech';
+import { readAloudSupported, useReadAloud } from '../editor/readAloud';
 import { checkProse } from '../editor/proseCheck';
 import { diffWords } from '../editor/diff';
 import { AIError, getAISettings } from '../ai/provider';
-import { Icon, Modal, confirmDialog, Term } from '../components/ui';
+import { Icon, Menu, Modal, Ornament, confirmDialog, promptDialog, Term } from '../components/ui';
 import { toast } from '../story/store';
 
 const STATUSES: ChapterStatus[] = ['Idea', 'Outlined', 'Drafting', 'Revising', 'Done'];
@@ -63,6 +64,7 @@ function ChapterList({ p, current }: { p: Project; current: string }) {
               <div className="tt">{c.title || 'Untitled'}</div>
               <div className="st">
                 {c.status} · {countWords(c.text).toLocaleString()} words
+                {c.status === 'Done' && <span className="stamp" key={`done-${c.id}`}>✓</span>}
               </div>
             </button>
             {active && scenes.length > 0 && (
@@ -108,6 +110,25 @@ function ChapterList({ p, current }: { p: Project; current: string }) {
   );
 }
 
+/** Where Talk will put her words (while she speaks) and the words it just added (glowing for a few seconds). */
+function TalkMarker({ el, mark, state }: { el: HTMLTextAreaElement; mark: { pos: number; from?: number; to?: number }; state: 'listening' | 'writing' | 'done' }) {
+  const line = parseFloat(getComputedStyle(el).lineHeight) || 28;
+  const len = el.value.length;
+  const top = (i: number) => caretTop(el, Math.min(i, len)) - line;
+  const hasNew = mark.from !== undefined && mark.to !== undefined && mark.to > mark.from;
+  const bandTop = hasNew ? top(mark.from! + (el.value[mark.from!] === '\n' ? 1 : 0)) : top(mark.pos);
+  const bandH = hasNew ? Math.max(line, top(mark.to!) - bandTop + line) : line;
+  const flagTop = state === 'done' && hasNew ? bandTop : top(mark.pos);
+  return (
+    <>
+      <div className={`talk-band${hasNew ? ' added' : ''}${state === 'done' ? ' fade' : ''}`} style={{ top: bandTop, height: bandH }} aria-hidden />
+      <div className={`talk-flag ${state}`} style={{ top: flagTop - 30 }}>
+        {state === 'listening' ? '🎙 Your words will appear here' : state === 'writing' ? '✍ Writing it down here…' : '✓ Added here'}
+      </div>
+    </>
+  );
+}
+
 /** Pixel offset of a character index inside a textarea (via an invisible mirror), for scrolling to search results. */
 function caretTop(el: HTMLTextAreaElement, index: number): number {
   const m = document.createElement('div');
@@ -117,7 +138,7 @@ function caretTop(el: HTMLTextAreaElement, index: number): number {
   m.style.wordWrap = 'break-word';
   m.style.position = 'absolute';
   m.style.visibility = 'hidden';
-  m.textContent = el.value.slice(0, index);
+  m.textContent = el.value.slice(0, index) + '\u200b'; // so a trailing new line still counts as a line
   document.body.appendChild(m);
   const h = m.offsetHeight;
   m.remove();
@@ -157,7 +178,24 @@ function ChapterEditor({ p, ch, onRead }: { p: Project; ch: Chapter; onRead: () 
     }
   }, [ch.text]);
 
-  useEffect(() => () => commit(ta.current?.value ?? committed.current), [commit]);
+  useEffect(
+    () => () => {
+      commit(ta.current?.value ?? committed.current);
+      // Quietly refresh this chapter's summary for the editor's memory (cheap model; only if it changed a lot).
+      void maybeSummarize(ch.id);
+    },
+    [commit, ch.id],
+  );
+
+  // Every save (including when the window closes) first takes the newest keystrokes.
+  useEffect(() => registerFlushHook(() => ta.current && commit(ta.current.value)), [commit]);
+
+  // Arriving from a whole-book search result: jump to it.
+  useEffect(() => {
+    const j = takePendingJump(ch.id);
+    if (j) setTimeout(() => select(j.start, j.end), 150);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ch.id]);
 
   // Keep an automatic version when a chapter is opened, so any session can be rolled back.
   useEffect(() => {
@@ -186,9 +224,16 @@ function ChapterEditor({ p, ch, onRead }: { p: Project; ch: Chapter; onRead: () 
     timer.current = setTimeout(() => commit(v), 400);
   };
 
-  const insertAt = (start: number, end: number, value: string) => {
+  const insertAt = (start: number, end: number, value: string, quiet = false) => {
     const el = ta.current;
     if (!el) return;
+    // Voice text on a touch screen: don't focus (that would pop up the on-screen keyboard over the page).
+    if (quiet && matchMedia('(pointer: coarse)').matches) {
+      const next = el.value.slice(0, start) + value + el.value.slice(end);
+      setText(next);
+      commit(next);
+      return;
+    }
     el.focus();
     el.setSelectionRange(start, end);
     // execCommand keeps the browser's own Undo (Ctrl+Z) working after AI edits.
@@ -226,14 +271,93 @@ function ChapterEditor({ p, ch, onRead }: { p: Project; ch: Chapter; onRead: () 
     return () => registerEditor(null);
   });
 
+  const reader = useReadAloud((start, end) => {
+    const el = ta.current;
+    if (!el) return;
+    el.focus({ preventScroll: true });
+    el.setSelectionRange(start, end);
+    const top = el.getBoundingClientRect().top + window.scrollY + caretTop(el, start);
+    if (Math.abs(top - (window.scrollY + window.innerHeight / 2)) > window.innerHeight / 3) window.scrollTo({ top: top - window.innerHeight / 2.5, behavior: 'smooth' });
+  });
+
+  // ---- Talk: the words go where she last put the cursor in this chapter, or at the end.
+  // A marker shows the spot while she speaks, and the new words glow once they arrive.
+  const caret = useRef<number | null>(null);
+  const talkAt = useRef(0);
+  const [talkMark, setTalkMark] = useState<{ pos: number; from?: number; to?: number; atEnd: boolean } | null>(null);
+  const markTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const voice = useVoiceStatus();
+  const scrollToPos = (pos: number) => {
+    const el = ta.current;
+    if (!el) return;
+    const top = el.getBoundingClientRect().top + window.scrollY + caretTop(el, pos);
+    if (top < window.scrollY + 120 || top > window.scrollY + window.innerHeight - 160) window.scrollTo({ top: top - window.innerHeight / 2.5, behavior: 'smooth' });
+  };
   const speech = useSpeech((phrase) => {
     const el = ta.current;
     if (!el) return;
-    const s = el.selectionEnd;
+    const s = Math.min(talkAt.current, el.value.length);
     const before = el.value.slice(0, s);
-    const pad = before && !/\s$/.test(before) && !/^[.,!?]/.test(phrase) ? ' ' : '';
-    insertAt(s, s, pad + phrase);
+    let added = joinSpoken(before, phrase).slice(before.length);
+    // Leave a space before any words that follow.
+    if (/^[\p{L}\p{N}“"(]/u.test(el.value.slice(s, s + 1)) && !/\s$/.test(added)) added += ' ';
+    insertAt(s, s, added, true);
+    talkAt.current = s + added.length;
+    caret.current = talkAt.current;
+    setTalkMark((m) => ({ pos: talkAt.current, from: m?.from !== undefined && m.to === s ? m.from : s, to: talkAt.current, atEnd: m?.atEnd ?? false }));
+    requestAnimationFrame(() => scrollToPos(talkAt.current));
+    const words = countWords(added);
+    toast(`Added ${words} word${words === 1 ? '' : 's'} to Chapter ${no}. They're highlighted on the page.`);
   });
+  const startTalk = (atEnd = false) => {
+    const el = ta.current;
+    if (!el) return;
+    if (markTimer.current) clearTimeout(markTimer.current);
+    const end = el.value.length;
+    let pos = atEnd || caret.current === null ? end : Math.min(caret.current, end);
+    // Never split a word: move to the end of the word the cursor is in.
+    while (pos < end && /[\p{L}\p{N}'’]/u.test(el.value[pos]) && pos > 0 && /[\p{L}\p{N}'’]/u.test(el.value[pos - 1])) pos++;
+    talkAt.current = pos;
+    setTalkMark({ pos, atEnd: pos >= end });
+    setVoiceTarget(`Chapter ${no}`);
+    requestAnimationFrame(() => scrollToPos(pos));
+    if (!speech.listening) speech.start();
+  };
+  const talking = speech.listening || voice.state === 'transcribing';
+  // Keep the highlight for a few seconds after she finishes, then tidy it away.
+  useEffect(() => {
+    if (talking || !talkMark) return;
+    markTimer.current = setTimeout(() => setTalkMark(null), talkMark.to !== undefined ? 7000 : 0);
+    return () => {
+      if (markTimer.current) clearTimeout(markTimer.current);
+    };
+  }, [talking, talkMark]);
+
+  const toggleItalic = () => {
+    const el = ta.current;
+    if (!el || el.selectionEnd === el.selectionStart) return toast('Select the words you want in italics first.');
+    const a = el.selectionStart;
+    const b = el.selectionEnd;
+    const sel = el.value.slice(a, b);
+    if (/^\*[^*]+\*$/.test(sel)) insertAt(a, b, sel.slice(1, -1));
+    else insertAt(a, b, `*${sel.replace(/\*/g, '')}*`);
+  };
+  const sceneBreak = () => {
+    const el = ta.current;
+    if (!el) return;
+    const at = el.selectionEnd;
+    insertAt(at, at, `${at > 0 && !el.value.slice(0, at).endsWith('\n\n') ? '\n\n' : ''}*\n\n`);
+  };
+  const saveVersionNow = async () => {
+    const label = await promptDialog('Save a version', 'A copy of this chapter as it is right now. You can compare or restore it from History.', { value: 'Saved by hand' });
+    if (label === null) return;
+    commit(text);
+    const cur = getState().project?.chapters.find((c) => c.id === ch.id);
+    if (!cur) return;
+    patchItem('chapters', ch.id, { versions: [{ id: uid(), at: Date.now(), label: label.trim() || 'Saved by hand', text }, ...cur.versions].slice(0, 40) });
+    toast('Version saved.');
+  };
+  const today = todayWords(p);
 
   const chWords = countWords(text);
   const allWords = manuscriptWords(p) - countWords(ch.text) + chWords;
@@ -251,6 +375,26 @@ function ChapterEditor({ p, ch, onRead }: { p: Project; ch: Chapter; onRead: () 
       else setSelBar(null);
     }, 0);
   };
+
+  // On iPad and iPhone there's no mouse-up after selecting with a finger: watch the selection instead.
+  useEffect(() => {
+    if (!window.matchMedia?.('(pointer: coarse)').matches) return;
+    let t: ReturnType<typeof setTimeout> | null = null;
+    const onSel = () => {
+      if (t) clearTimeout(t);
+      t = setTimeout(() => {
+        const el = ta.current;
+        if (!el || document.activeElement !== el) return;
+        if (el.selectionEnd - el.selectionStart > 3) setSelBar({ x: 8, y: 64 });
+        else setSelBar(null);
+      }, 350);
+    };
+    document.addEventListener('selectionchange', onSel);
+    return () => {
+      document.removeEventListener('selectionchange', onSel);
+      if (t) clearTimeout(t);
+    };
+  }, []);
 
   const summaryStale = ch.summary && Math.abs(countWords(ch.text) - ch.summaryWordCount) > 150;
   const [summarizing, setSummarizing] = useState(false);
@@ -272,6 +416,20 @@ function ChapterEditor({ p, ch, onRead }: { p: Project; ch: Chapter; onRead: () 
     <div className="editor-wrap">
       {!focus && (
         <div className="editor-bar">
+          {/* On iPad and iPhone the chapter list is hidden: pick the chapter here. */}
+          <select className="status-select ch-select" value={ch.id} onChange={(e) => {
+              if (e.target.value !== '+') return updateProject({ currentChapterId: e.target.value });
+              const c = newChapter(`Chapter ${p.chapters.length + 1}`);
+              addItem('chapters', c);
+              updateProject({ currentChapterId: c.id });
+            }} title="Chapter" aria-label="Chapter">
+            {p.chapters.map((c, i) => (
+              <option key={c.id} value={c.id}>
+                Ch. {i + 1}: {c.title || 'Untitled'}
+              </option>
+            ))}
+            <option value="+">+ New chapter</option>
+          </select>
           <select className="status-select" value={ch.status} onChange={(e) => patchItem('chapters', ch.id, { status: e.target.value as ChapterStatus })} title="Chapter status">
             {STATUSES.map((s) => (
               <option key={s}>{s}</option>
@@ -295,39 +453,84 @@ function ChapterEditor({ p, ch, onRead }: { p: Project; ch: Chapter; onRead: () 
           <button className={`btn ghost small${find ? ' on' : ''}`} onClick={() => setFind(!find)} title="Find and replace">
             <Icon name="search" size={16} /> Find
           </button>
-          <button className={`btn ghost small${speech.listening ? ' on' : ''}`} onClick={speech.toggle} title='Dictate. Say "full stop", "comma" or "new paragraph" for punctuation.'>
+          {readAloudSupported && (
+            <button
+              className={`btn ghost small${reader.state !== 'idle' ? ' on' : ''}`}
+              title="Hear your chapter read aloud. It starts at your cursor, or at the beginning."
+              onClick={() => {
+                if (reader.state !== 'idle') return reader.stop();
+                const el = ta.current;
+                const from = el && el.selectionStart < el.value.length - 20 ? el.selectionStart : 0;
+                reader.play(text, from);
+              }}
+            >
+              {reader.state !== 'idle' ? '■ Stop' : '▶ Listen'}
+            </button>
+          )}
+          <button className={`btn ghost small${speech.listening ? ' on' : ''}`} onClick={() => (speech.listening ? speech.stop() : startTalk())} title='Dictate: your words go where your cursor is (or at the end). Say "full stop", "comma" or "new paragraph" for punctuation.'>
             <Icon name="mic" size={16} /> {speech.listening ? 'Stop' : 'Talk'}
-          </button>
-          <button className="btn ghost small" onClick={() => setModal('check')} title="Free, instant check for stock phrases and repetitive habits">
-            Check prose
-          </button>
-          <button className="btn ghost small" onClick={() => setModal('notes')} title="Your notes on this chapter">
-            <Icon name="note" size={16} /> Notes{ch.comments.length ? ` (${ch.comments.length})` : ''}
-          </button>
-          <button className="btn ghost small" onClick={() => setModal('history')} title="Earlier versions of this chapter">
-            <Icon name="history" size={16} /> History
-          </button>
-          <button className="btn ghost small" onClick={onRead} title="Read the whole manuscript">
-            <Icon name="book" size={16} /> Read book
           </button>
           <button className="btn ghost small" onClick={() => setState({ focusMode: true })} title="Hide everything except your page">
             <Icon name="focus" size={16} /> Focus
           </button>
+          <Menu
+            label={<>More ▾</>}
+            items={[
+              { label: 'History: earlier versions', hint: 'Compare or restore any earlier version', onClick: () => setModal('history') },
+              { label: 'Check my prose', hint: 'Free, instant, private', onClick: () => setModal('check') },
+              { label: `Notes on this chapter${ch.comments.length ? ` (${ch.comments.length})` : ''}`, onClick: () => setModal('notes') },
+              { label: 'Read the whole book', onClick: onRead },
+              { label: 'Italic', hint: 'Select words first · Ctrl+I', onClick: toggleItalic },
+              { label: 'Insert a scene break', hint: 'A centred * between scenes', onClick: sceneBreak },
+              { label: 'Read it like a reader', hint: 'A first reader\'s honest reaction to this chapter', onClick: () => openEditor({ actionId: 'betaReader', chapterId: ch.id }, true) },
+              { label: 'Update my story bible from this chapter', hint: 'Your editor lists new facts, clues and events', onClick: () => openEditor({ actionId: 'extract', chapterId: ch.id }, true) },
+              { label: 'Save a version now', onClick: saveVersionNow },
+            ]}
+          />
         </div>
       )}
-      {find && <FindBar text={text} onSelect={select} onReplaceAll={(v) => (saveChapterVersion(ch.id, 'Before replace all'), setText(v), commit(v))} onReplaceOne={insertAt} onClose={() => setFind(false)} />}
-      {speech.listening && (
-        <div className="findbar">
-          <span className="pill accent">Listening…</span>
-          <span className="small muted">{speech.interim || 'Speak naturally. Say "full stop", "comma" or "new paragraph".'}</span>
+      {find && <FindBar p={p} chapterId={ch.id} text={text} onSelect={select} onReplaceAll={(v) => (saveChapterVersion(ch.id, 'Before replace all'), setText(v), commit(v))} onReplaceOne={insertAt} onClose={() => setFind(false)} />}
+      {talking && talkMark && (
+        <div className="findbar talk-bar">
+          <span className="pill accent">{speech.listening ? 'Listening…' : 'Writing it down…'}</span>
+          <span className="small">
+            Your words go into <b>Chapter {no}</b>, {talkMark.atEnd ? <b>at the end</b> : <b>where your cursor was</b>} (marked on the page).
+          </span>
+          {!talkMark.atEnd && speech.listening && (
+            <button className="btn small" onClick={() => startTalk(true)}>
+              Put them at the end instead
+            </button>
+          )}
+          {speech.interim && <span className="small muted">{speech.interim}</span>}
         </div>
       )}
       {speech.error && <div className="findbar" style={{ color: 'var(--danger)' }}>{speech.error}</div>}
+      {reader.state !== 'idle' && (
+        <div className="findbar">
+          <span className="pill accent">Reading aloud</span>
+          <span className="small muted">Listen for sentences that trip, repeat, or run too long.</span>
+          <span className="spacer" />
+          {reader.state === 'playing' ? (
+            <button className="btn small" onClick={reader.pause}>Pause</button>
+          ) : (
+            <button className="btn small" onClick={reader.resume}>Resume</button>
+          )}
+          <label className="row small" style={{ gap: 6 }}>
+            Speed
+            <input type="range" min={0.7} max={1.3} step={0.05} value={reader.rate} onChange={(e) => reader.setRate(+e.target.value)} />
+          </label>
+          <button className="btn small" onClick={reader.stop}>Stop</button>
+        </div>
+      )}
 
       <div className="editor-scroll" onClick={() => setSelBar(null)}>
         <div className={`sheet${focus ? ' plain' : ''}`}>
           <div className="ch-no">Chapter {no}</div>
           <input className="ch-title" value={ch.title} onChange={(e) => patchItem('chapters', ch.id, { title: e.target.value })} placeholder="Chapter title" aria-label="Chapter title" />
+          <Ornament />
+          {!focus && !text.trim() && <DraftOffer ch={ch} />}
+          <div className="ms-wrap">
+          {talkMark && ta.current && <TalkMarker el={ta.current} mark={talkMark} state={speech.listening ? 'listening' : voice.state === 'transcribing' ? 'writing' : 'done'} />}
           <textarea
             ref={ta}
             className="manuscript"
@@ -335,12 +538,28 @@ function ChapterEditor({ p, ch, onRead }: { p: Project; ch: Chapter; onRead: () 
             spellCheck
             onChange={(e) => onChange(e.target.value)}
             onBlur={(e) => commit(e.target.value)}
+            onSelect={(e) => (caret.current = e.currentTarget.selectionEnd)}
             onMouseUp={onMouseUp}
             onClick={(e) => e.stopPropagation()}
-            onKeyUp={() => ta.current && ta.current.selectionEnd === ta.current.selectionStart && setSelBar(null)}
+            onKeyUp={(e) => {
+              const el = ta.current;
+              if (!el) return;
+              if (el.selectionEnd === el.selectionStart) setSelBar(null);
+              else if (e.shiftKey && el.selectionEnd - el.selectionStart > 3) {
+                const r = el.getBoundingClientRect();
+                setSelBar({ x: Math.max(r.left, 80), y: 64 });
+              }
+            }}
+            onKeyDown={(e) => {
+              if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'i') {
+                e.preventDefault();
+                toggleItalic();
+              }
+            }}
             placeholder={'Begin here. Write it rough. You can polish it later.\n\nIf you\'re not sure how to start, open your editor on the right and choose "Scene" or "Write".'}
             aria-label="Chapter text"
           />
+          </div>
         </div>
       </div>
 
@@ -351,14 +570,17 @@ function ChapterEditor({ p, ch, onRead }: { p: Project; ch: Chapter; onRead: () 
             ['Make darker', () => openEditor({ actionId: 'improve', selection: selection(), variant: 'darker' }, true)],
             ['More suspense', () => openEditor({ actionId: 'improve', selection: selection(), variant: 'suspense' }, true)],
             ['Subtler', () => openEditor({ actionId: 'improve', selection: selection(), variant: 'subtler' }, true)],
+            ['Sound like me', () => openEditor({ actionId: 'improve', selection: selection(), variant: 'human' }, true)],
             ['Editor\'s review', () => openEditor({ actionId: 'proseReview', selection: selection() }, true)],
             ['Ask about this', () => openEditor({ actionId: 'ask', selection: selection() })],
+            ['Italic', toggleItalic],
             [
               'Add note',
-              () => {
+              async () => {
                 const s = selection();
-                const note = window.prompt('Your note about this passage:');
-                if (note) patchItem('chapters', ch.id, { comments: [...ch.comments, { id: uid(), at: Date.now(), quote: s.text.slice(0, 300), note }] });
+                const note = await promptDialog('Add a note', `About: “${s.text.slice(0, 120)}${s.text.length > 120 ? '…' : ''}”`, { placeholder: 'Your note…', long: true, ok: 'Add note' });
+                const cur = getState().project?.chapters.find((c) => c.id === ch.id);
+                if (note?.trim() && cur) patchItem('chapters', ch.id, { comments: [...cur.comments, { id: uid(), at: Date.now(), quote: s.text.slice(0, 300), note: note.trim() }] });
               },
             ],
           ].map(([label, fn]) => (
@@ -381,6 +603,7 @@ function ChapterEditor({ p, ch, onRead }: { p: Project; ch: Chapter; onRead: () 
         </span>
         <span>{allWords.toLocaleString()} in the book</span>
         <span>{readingTime(chWords)}</span>
+        {today > 0 && <span className="today" title="Words added to your book today">Today: +{today.toLocaleString()}</span>}
         {ch.povCharacterId && (
           <span>
             <Term k="pov">POV</Term>: {characterName(p, ch.povCharacterId)}
@@ -403,7 +626,9 @@ function ChapterEditor({ p, ch, onRead }: { p: Project; ch: Chapter; onRead: () 
         ) : saveState === 'saving' || text !== committed.current ? (
           <span>Saving…</span>
         ) : (
-          <span className="save-ok">✓ Saved {lastSavedAt ? timeAgo(lastSavedAt) : ''}</span>
+          <span className="save-ok">
+            <span className="tick" key={lastSavedAt}>✓</span> Saved {lastSavedAt ? timeAgo(lastSavedAt) : ''}
+          </span>
         )}
       </div>
 
@@ -425,12 +650,16 @@ function ChapterEditor({ p, ch, onRead }: { p: Project; ch: Chapter; onRead: () 
 }
 
 function FindBar({
+  p,
+  chapterId,
   text,
   onSelect,
   onReplaceAll,
   onReplaceOne,
   onClose,
 }: {
+  p: Project;
+  chapterId: string;
   text: string;
   onSelect: (s: number, e: number) => void;
   onReplaceAll: (v: string) => void;
@@ -440,6 +669,19 @@ function FindBar({
   const [q, setQ] = useState('');
   const [r, setR] = useState('');
   const [idx, setIdx] = useState(-1);
+  const [all, setAll] = useState(false);
+  const everywhere = useMemo(() => {
+    if (!all || q.length < 2) return [];
+    const re = new RegExp(escapeRe(q), 'gi');
+    const out: { chId: string; label: string; index: number; snip: string }[] = [];
+    p.chapters.forEach((c, i) => {
+      const src = c.id === chapterId ? text : c.text;
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(src)) && out.length < 200)
+        out.push({ chId: c.id, label: `Ch. ${i + 1}`, index: m.index, snip: src.slice(Math.max(0, m.index - 50), m.index + q.length + 50).replace(/\s+/g, ' ') });
+    });
+    return out;
+  }, [all, q, p.chapters, chapterId, text]);
   const matches = useMemo(() => {
     if (!q) return [] as number[];
     const re = new RegExp(escapeRe(q), 'gi');
@@ -484,10 +726,34 @@ function FindBar({
       >
         Replace all
       </button>
+      <label className="row small" style={{ cursor: 'pointer', gap: 6 }}>
+        <input type="checkbox" checked={all} onChange={(e) => setAll(e.target.checked)} /> Whole book
+      </label>
       <span className="spacer" />
       <button className="btn ghost small" onClick={onClose}>
         Close
       </button>
+      {all && q.length >= 2 && (
+        <div style={{ flexBasis: '100%', maxHeight: 240, overflowY: 'auto', background: 'var(--paper)', borderRadius: 8, padding: 6 }}>
+          {everywhere.length === 0 && <div className="small muted" style={{ padding: 6 }}>Not found anywhere in the book.</div>}
+          {everywhere.map((r, i) => (
+            <button
+              key={i}
+              className="ch-item"
+              onClick={() => {
+                if (r.chId === chapterId) onSelect(r.index, r.index + q.length);
+                else {
+                  setPendingJump({ chapterId: r.chId, start: r.index, end: r.index + q.length });
+                  updateProject({ currentChapterId: r.chId });
+                }
+              }}
+            >
+              <span className="pill neutral" style={{ marginRight: 8 }}>{r.label}</span>
+              <span className="small">…{r.snip}…</span>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -504,10 +770,11 @@ function HistoryModal({ ch, current, onClose }: { ch: Chapter; current: string; 
         <span className="spacer" />
         <button
           className="btn small"
-          onClick={() => {
-            const label = window.prompt('Name this version (optional):', 'Saved by hand') ?? '';
+          onClick={async () => {
+            const label = await promptDialog('Save a version', 'Give it a name if you like.', { value: 'Saved by hand' });
+            if (label === null) return;
             patchItem('chapters', ch.id, { text: current });
-            const versions = [{ id: uid(), at: Date.now(), label: label || 'Saved by hand', text: current }, ...ch.versions].slice(0, 40);
+            const versions = [{ id: uid(), at: Date.now(), label: label.trim() || 'Saved by hand', text: current }, ...ch.versions].slice(0, 40);
             patchItem('chapters', ch.id, { versions });
             toast('Version saved.');
           }}
@@ -701,10 +968,10 @@ function Reader({ p, onClose }: { p: Project; onClose: () => void }) {
                 .filter(Boolean)
                 .map((para, k) =>
                   /^(\*|#|\*\s?\*\s?\*)$/.test(para) ? (
-                    <p key={k} className="sep">*</p>
+                    <p key={k} className="sep">⁂</p>
                   ) : (
                     <p key={k} className={k === 0 ? 'first' : ''}>
-                      {para}
+                      {italicize(para)}
                     </p>
                   ),
                 )}
@@ -712,6 +979,38 @@ function Reader({ p, onClose }: { p: Project; onClose: () => void }) {
             </section>
           ))}
         </div>
+      </div>
+    </div>
+  );
+}
+
+/** Render *asterisk* italics as real italics. */
+function italicize(t: string) {
+  return t.split(/(\*[^*\n]+\*)/g).map((part, i) => (/^\*[^*]+\*$/.test(part) ? <em key={i}>{part.slice(1, -1)}</em> : part));
+}
+
+/** On an empty chapter: offer a first draft built from her plan (it lands in the editor panel for review first). */
+function DraftOffer({ ch }: { ch: Chapter }) {
+  const p = useProject();
+  const planned = Object.values(ch.outline).some((v) => v.trim()) || p.scenes.some((s) => s.chapterId === ch.id);
+  return (
+    <div className="draft-offer">
+      <div>
+        <b>Want a first draft to work from?</b>
+        <div className="small muted">
+          Your editor can draft this chapter from your plan, characters, clues and style. You read it first, then shape it into your own words.
+          {!planned && ' Tip: answer a few questions for this chapter in Scenes & Outline first. The draft will be far better.'}
+        </div>
+      </div>
+      <div className="row">
+        {!planned && (
+          <button className="btn small" onClick={() => setState({ page: 'scenes' })}>
+            Plan it first
+          </button>
+        )}
+        <button className="btn brass small" onClick={() => openEditor({ actionId: 'draftChapter', chapterId: ch.id })}>
+          <Icon name="spark" size={16} /> Draft this chapter for me
+        </button>
       </div>
     </div>
   );

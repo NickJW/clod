@@ -3,6 +3,7 @@
 import type { CanonStatus, Chapter, Project } from '../types';
 import { getState, patchItem } from './store';
 import { uid } from './factory';
+import { getPref, setPref } from '../storage/db';
 
 export interface FieldDef {
   key: string;
@@ -69,6 +70,18 @@ export const CHARACTER_GROUPS: FieldGroup[] = [
       { key: 'conflicts', label: 'Who they clash with', long: true },
       { key: 'romance', label: 'Possible romance', long: true },
       { key: 'betrayals', label: 'Possible betrayals', long: true },
+    ],
+  },
+  {
+    title: 'As a suspect',
+    intro: 'Only if they could be suspected. Readers love weighing motive, means and opportunity.',
+    fields: [
+      { key: 'susMotive', label: 'Motive (why they might have done it)', long: true },
+      { key: 'susMeans', label: 'Means (could they physically have done it?)', long: true },
+      { key: 'susOpportunity', label: 'Opportunity (where were they?)', long: true },
+      { key: 'susAlibi', label: 'Their alibi, and whether it\'s true', long: true },
+      { key: 'susPointers', label: 'What makes the reader suspect them', long: true },
+      { key: 'susCleared', label: 'When and how they\'re cleared (or not)', long: true },
     ],
   },
   {
@@ -181,6 +194,41 @@ export function saveChapterVersion(chapterId: string, label: string): void {
   const ch = p?.chapters.find((c) => c.id === chapterId);
   if (!ch || !ch.text.trim()) return;
   if (ch.versions[0]?.text === ch.text) return;
-  const versions = [{ id: uid(), at: Date.now(), label, text: ch.text }, ...ch.versions].slice(0, 40);
+  const versions = [{ id: uid(), at: Date.now(), label, text: ch.text }, ...ch.versions].slice(0, 25);
   patchItem('chapters', chapterId, { versions } as Partial<Chapter>);
+}
+
+/** Words added to the book today (baseline taken the first time the book is seen each day). */
+export function todayWords(p: Project): number {
+  const key = `today:${p.id}`;
+  const date = new Date().toDateString();
+  const total = manuscriptWords(p);
+  let b = getPref<{ date: string; start: number } | null>(key, null);
+  if (!b || b.date !== date) {
+    b = { date, start: total };
+    setPref(key, b);
+  }
+  const today = Math.max(0, total - b.start);
+  // Keep a small per-day log for the writing streak.
+  const logKey = `wordlog:${p.id}`;
+  const log = getPref<Record<string, number>>(logKey, {});
+  if ((log[date] ?? 0) !== today) setPref(logKey, { ...log, [date]: today });
+  return today;
+}
+
+/** Consecutive days (ending today, or yesterday if nothing yet today) with words written. */
+export function writingStreak(p: Project): number {
+  const log = getPref<Record<string, number>>(`wordlog:${p.id}`, {});
+  let n = 0;
+  const d = new Date();
+  if (!(log[d.toDateString()] > 0)) d.setDate(d.getDate() - 1);
+  while (log[d.toDateString()] > 0) {
+    n++;
+    d.setDate(d.getDate() - 1);
+  }
+  return n;
+}
+
+export function dailyGoal(p: Project): number {
+  return getPref<number>(`goal:${p.id}`, 500);
 }

@@ -12,8 +12,13 @@ A calm, private writing studio for a first-time novelist writing a dark mystery 
 6. **Talk**: click the microphone anywhere and speak instead of typing (Chrome and Edge).
 7. **I'm stuck** and **What should I work on?** are on the Home page whenever you need them.
 
-### Connecting the AI editor (once, about 2 minutes)
-Settings → *Your AI editor* has step-by-step instructions. You create a key at console.anthropic.com, add some credit, and paste the key in. The app talks to Claude directly from your computer, with no middleman.
+### Connecting the AI editor (free, set up once)
+The AI editor works inside Nightjar using **Google Gemini's free tier**.
+1. Whoever sets it up opens **Settings & Backup → Your AI editor**, goes to aistudio.google.com/apikey, signs in with a Google account, clicks **Create API key**, and pastes it in. There's no credit card and no cost.
+2. To connect someone else's computer, click **Create a setup link** and send it to them privately. They just open it and they're connected. The key travels after the `#` in the link, so it's never sent to any server.
+
+*Privacy:* on the free tier, Google may use requests to improve its products. Turning on billing for the key makes it private (pay per use, usually pennies).
+*Other options* in the same menu: Claude or ChatGPT with a pay-per-use key (Claude gives the best writing quality), or copy & paste with a ChatGPT or Claude subscription.
 
 ### Keeping your work safe
 - Everything is saved in this browser on this computer. There's no account, no server and no tracking.
@@ -67,8 +72,25 @@ Working now:
 - Phase 3: professional editor review, revision modes, twist workshop, pacing/structure analysis, romance tracker, relevance-based context, version compare/restore, ending workspace
 - Phase 4: voice input, research area (known / needs checking / invented), notes, DOCX/TXT/MD import, full export and backup
 
+Added in the second round:
+- **Guide**: a step-by-step writing journey (11 steps) with auto-detected progress, a "next step" card on Home, and a guide bar on each page with *Back to guide / Next step*
+- **AI choice**: Claude (recommended), ChatGPT via an OpenAI API key (models listed live from her account), or **copy & paste** with a ChatGPT/Claude subscription (no key; chat subscriptions can't be connected to other apps directly)
+- Better AI output: drafts match a sample of her own prose; every AI draft gets a free quality check with "Ask for a cleaner version"; chapter summaries refresh automatically with the cheap model
+- "Update my story bible from this chapter": one-click adding of new facts, clues, events and characters
+- Italics (`*like this*`, Ctrl+I) in the editor, reader, PDF and Word export/import; scene breaks
+- Whole-book search, today's word count, a getting-started checklist, in-app dialogs instead of browser pop-ups, a tidier toolbar
+- Automatic hourly backups to a folder she picks once (Chrome/Edge), and offline support
+
+Added in the third round (aimed at a gripping, publishable book):
+- **Story Lab:** page-turner analysis (put-down risk chart, tension, chapter endings), emotional rollercoaster heat map, reader question ledger, solvability test (when simulated readers crack the mystery), reader panel (four reader types plus an agent), stress tests (the killer's counter-move, plot-hole hunter, detective plausibility, twist impact, set pieces, "would readers root for her?", chemistry, character arcs, dialogue voice test, premise and hook tests, hook amplifier, genre promise, word of mouth, alternative endings), learning from a favourite book, Opening Pages Lab (the agent's desk, first-line workshop), editorial letter
+- **Polish:** manuscript health report (length for the genre, chapter lengths, dialogue, POV balance, habit words, repeated phrases), style sheet and consistency checker, name checker, motif tracker, proofreading, voice drift, sensitivity read, permissions and legal flags, content notes
+- **Publish:** market trends, comparable titles and "X meets Y" pitches, title lab, cover brief, reader profile, pitch materials (logline, blurb, synopsis, query, bio), agent panel for the query, agent finder and submission tracker, contests, submission package (.docx), reader packet for human beta readers, feedback sorter, e-book (.epub) and store listing for self-publishing
+- **Series:** series potential, sequel seeds, new mysteries from the same world, series arc, and "Start the sequel" (a new book that inherits characters, places, relationships and a recap)
+- **Finishing:** today's scene, pace and finish-date forecast, weekly plan, shareable progress note, read-aloud, corkboard, and an editor that learns her taste from the edits she turns down
+- Tools marked "web search" use Gemini's Google Search when the plan includes it, and otherwise answer from memory with clear "verify" flags
+
 Planned / not yet built:
-- Italics and other inline formatting in the manuscript (it's plain text today)
-- Offline mode (a service worker), and a native desktop installer (the browser's *Install app* works today)
+- Bold/underline and other rich formatting
+- A native desktop installer (the browser's *Install app* works today)
 - Embedding-based retrieval for very long manuscripts (structured selection plus summaries is used instead)
 - Optional encrypted cloud sync. Deliberately left out for privacy; backups cover this for now.

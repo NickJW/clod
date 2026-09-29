@@ -25,7 +25,10 @@ export function Ending() {
           <h1>How it all resolves</h1>
           <p className="lead">It's fine not to know yet. Many writers discover their ending by writing toward it. Fill in what you know.</p>
         </div>
-        <AskButton action="endingCheck" label="Check my ending" run />
+        <div className="row">
+          <AskButton action="backwards" label="Plan backwards from my ending" run className="btn primary" />
+          <AskButton action="endingCheck" label="Check my ending" run />
+        </div>
       </div>
       <div className="char-layout">
         <div className="card">
@@ -52,6 +55,16 @@ export function Ending() {
                 ))}
               </ul>
             )}
+          </div>
+          <div className="card">
+            <h3 style={{ fontSize: '1.1rem' }}>Working backwards</h3>
+            <p className="small muted">Many mystery writers plan from the ending: decide the solution, then plant what the reader needs to see along the way. Your editor can lay out that path, chapter by chapter.</p>
+          </div>
+          <div className="card stack" style={{ gap: 8 }}>
+            <h3 style={{ fontSize: '1.1rem' }}>When you're ready to share</h3>
+            <AskButton action="pitch" label="A one-line logline" input={{ variant: 'logline' }} run />
+            <AskButton action="pitch" label="A back-cover blurb" input={{ variant: 'blurb' }} run />
+            <AskButton action="pitch" label="A one-page synopsis" input={{ variant: 'synopsis' }} run />
           </div>
           <div className="card">
             <h3 style={{ fontSize: '1.1rem' }}>Where reveals land</h3>

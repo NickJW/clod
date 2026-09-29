@@ -157,6 +157,15 @@ export function Term({ k, children }: { k: string; children?: ReactNode }) {
   );
 }
 
+/** A small typographic flourish between sections. */
+export function Ornament({ mark = '✦' }: { mark?: string }) {
+  return (
+    <div className="ornament" aria-hidden>
+      <span>{mark}</span>
+    </div>
+  );
+}
+
 export function Empty({ title, children }: { title: string; children?: ReactNode }) {
   return (
     <div className="empty">
@@ -247,42 +256,111 @@ export function Modal({ children, onClose, wide }: { children: ReactNode; onClos
   );
 }
 
-type ConfirmReq = { title: string; body: string; ok: string; danger?: boolean; resolve: (v: boolean) => void };
+type ConfirmReq = {
+  title: string;
+  body: string;
+  ok: string;
+  danger?: boolean;
+  /** When set, the dialog asks for text. */
+  input?: { value: string; placeholder: string; long?: boolean; optional?: boolean };
+  resolve: (v: boolean | string | null) => void;
+};
 let confirmSetter: ((r: ConfirmReq | null) => void) | null = null;
 
 export function confirmDialog(title: string, body: string, ok = 'Yes', danger = false): Promise<boolean> {
   return new Promise((resolve) => {
     if (!confirmSetter) return resolve(window.confirm(`${title}\n\n${body}`));
-    confirmSetter({ title, body, ok, danger, resolve });
+    confirmSetter({ title, body, ok, danger, resolve: (v) => resolve(v === true) });
+  });
+}
+
+/** Ask for a line (or paragraph) of text. Resolves null if cancelled. */
+export function promptDialog(title: string, body = '', opts: { value?: string; placeholder?: string; ok?: string; long?: boolean; optional?: boolean } = {}): Promise<string | null> {
+  return new Promise((resolve) => {
+    if (!confirmSetter) return resolve(window.prompt(title, opts.value ?? ''));
+    confirmSetter({
+      title,
+      body,
+      ok: opts.ok ?? 'Save',
+      input: { value: opts.value ?? '', placeholder: opts.placeholder ?? '', long: opts.long, optional: opts.optional },
+      resolve: (v) => resolve(typeof v === 'string' ? v : null),
+    });
   });
 }
 
 export function ConfirmHost() {
   const [req, setReq] = useState<ConfirmReq | null>(null);
+  const [text, setText] = useState('');
   useEffect(() => {
-    confirmSetter = setReq;
+    confirmSetter = (r) => {
+      setText(r?.input?.value ?? '');
+      setReq(r);
+    };
     return () => {
       confirmSetter = null;
     };
   }, []);
   if (!req) return null;
   const done = (v: boolean) => {
-    req.resolve(v);
+    req.resolve(req.input ? (v ? text : null) : v);
     setReq(null);
   };
   return (
     <Modal onClose={() => done(false)}>
       <h2>{req.title}</h2>
-      <p className="muted">{req.body}</p>
+      {req.body && <p className="muted">{req.body}</p>}
+      {req.input &&
+        (req.input.long ? (
+          <textarea className="input" autoFocus rows={4} value={text} placeholder={req.input.placeholder} onChange={(e) => setText(e.target.value)} style={{ marginTop: 10 }} />
+        ) : (
+          <input className="input" autoFocus value={text} placeholder={req.input.placeholder} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && done(true)} style={{ marginTop: 10 }} />
+        ))}
       <div className="row end" style={{ marginTop: 20 }}>
-        <button className="btn" onClick={() => done(false)} autoFocus>
+        <button className="btn" onClick={() => done(false)} autoFocus={!req.input}>
           Cancel
         </button>
-        <button className={`btn ${req.danger ? 'danger' : 'primary'}`} onClick={() => done(true)}>
+        <button className={`btn ${req.danger ? 'danger' : 'primary'}`} onClick={() => done(true)} disabled={!!req.input && !req.input.optional && !text.trim()}>
           {req.ok}
         </button>
       </div>
     </Modal>
+  );
+}
+
+/** A small dropdown menu for less-used actions. */
+export function Menu({ label, items }: { label: ReactNode; items: { label: string; onClick: () => void; hint?: string }[] }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && setOpen(false);
+    window.addEventListener('mousedown', close);
+    return () => window.removeEventListener('mousedown', close);
+  }, [open]);
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <button className={`btn ghost small${open ? ' on' : ''}`} onClick={() => setOpen(!open)} aria-expanded={open}>
+        {label}
+      </button>
+      {open && (
+        <div className="menu" role="menu">
+          {items.map((it) => (
+            <button
+              key={it.label}
+              role="menuitem"
+              title={it.hint}
+              onClick={() => {
+                setOpen(false);
+                it.onClick();
+              }}
+            >
+              {it.label}
+              {it.hint && <span className="tiny muted">{it.hint}</span>}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -312,10 +390,17 @@ export function Toasts() {
 // ---------- Minimal markdown (headings, bullets, bold, italics). Renders as React nodes, never raw HTML. ----------
 
 function inline(s: string): ReactNode[] {
-  const parts = s.split(/(\*\*[^*]+\*\*|\*[^*\s][^*]*\*|_[^_\s][^_]*_)/g).filter(Boolean);
-  return parts.map((p, i) =>
-    p.startsWith('**') ? <strong key={i}>{p.slice(2, -2)}</strong> : /^[*_].+[*_]$/.test(p) ? <em key={i}>{p.slice(1, -1)}</em> : <span key={i}>{p}</span>,
-  );
+  const parts = s.split(/(\[[^\]]+\]\(https?:\/\/[^)\s]+\)|\*\*[^*]+\*\*|\*[^*\s][^*]*\*|_[^_\s][^_]*_)/g).filter(Boolean);
+  return parts.map((p, i) => {
+    const link = p.match(/^\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)$/);
+    if (link)
+      return (
+        <a key={i} href={link[2]} target="_blank" rel="noreferrer noopener">
+          {link[1]}
+        </a>
+      );
+    return p.startsWith('**') ? <strong key={i}>{p.slice(2, -2)}</strong> : /^[*_].+[*_]$/.test(p) ? <em key={i}>{p.slice(1, -1)}</em> : <span key={i}>{p}</span>;
+  });
 }
 
 export function Markdown({ text }: { text: string }) {
@@ -345,4 +430,35 @@ export function Markdown({ text }: { text: string }) {
   });
   flush();
   return <div className="md">{out}</div>;
+}
+
+/** "Watch the video tour": a narrated walkthrough of the whole studio. */
+export function TourButton({ className = 'btn', label = 'Watch the video tour (7 min)' }: { className?: string; label?: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button className={className} onClick={() => setOpen(true)}>
+        ▶ {label}
+      </button>
+      {open && (
+        <Modal onClose={() => setOpen(false)} wide>
+          <div className="row" style={{ marginBottom: 10 }}>
+            <h2 style={{ margin: 0 }}>A tour of your studio</h2>
+            <span className="spacer" />
+            <button className="btn ghost small" onClick={() => setOpen(false)}>
+              Close
+            </button>
+          </div>
+          <video poster="./tour/poster.jpg" controls autoPlay preload="metadata" style={{ width: '100%', borderRadius: 10, background: '#000' }}>
+            <source src="./tour/nightjar-tour.webm" type="video/webm" />
+            <source src="./tour/nightjar-tour.mp4" type="video/mp4" />
+            <track kind="captions" src="./tour/nightjar-tour.vtt" srcLang="en" label="English" default />
+          </video>
+          <p className="small muted" style={{ marginTop: 8 }}>
+            Tip: click the square in the bottom-right corner of the video for full screen. You can pause at any time and try each step yourself.
+          </p>
+        </Modal>
+      )}
+    </>
+  );
 }

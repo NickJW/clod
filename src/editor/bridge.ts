@@ -73,3 +73,17 @@ export function insertText(chapterId: string, text: string, where: 'cursor' | 'e
   }
   toast('Added to your chapter. An earlier version was kept in History.');
 }
+
+let pending: { chapterId: string; start: number; end: number } | null = null;
+
+/** Remember where to jump once a different chapter opens (whole-book search). */
+export function setPendingJump(j: { chapterId: string; start: number; end: number }) {
+  pending = j;
+}
+
+export function takePendingJump(chapterId: string) {
+  if (pending?.chapterId !== chapterId) return null;
+  const j = pending;
+  pending = null;
+  return j;
+}

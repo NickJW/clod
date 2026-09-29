@@ -5,7 +5,8 @@ import { ACTIONS, type ActionId, type Built, type JobInput, type OutputKind } fr
 import { buildContext } from './context';
 import { systemPrompt } from './prompts';
 import { AIError, estimateTokens, getAISettings, getProvider, recordUsage, type AIMessage, type AIUsage } from './provider';
-import { getState } from '../story/store';
+import { getState, patchItem } from '../story/store';
+import { countWords } from '../story/reference';
 import { getPref } from '../storage/db';
 import { flushEditor } from '../editor/bridge';
 
@@ -22,7 +23,18 @@ export interface Finding {
   suggestion?: string;
 }
 
+export interface ExtractItem {
+  kind: 'fact' | 'clue' | 'event' | 'belief' | 'character' | 'place' | 'scene' | 'secret';
+  chapter?: number;
+  have?: boolean;
+  title: string;
+  detail: string;
+  characters: string[];
+  when: string;
+}
+
 export interface Parsed {
+  items?: ExtractItem[];
   options?: Option[];
   questions?: string[];
   note?: string;
@@ -53,6 +65,8 @@ export interface Thread {
   handled: Record<number, string>;
   followUps: { q: string; a: string; status: 'running' | 'done' | 'error' }[];
   applied?: string;
+  /** Shown while a multi-step job is working (e.g. "Line-editing the draft…"). */
+  stage?: string;
 }
 
 interface PanelState {
@@ -63,7 +77,8 @@ interface PanelState {
 }
 
 let state: PanelState = {
-  open: getPref('panelOpen', true),
+  // On tablets and phones the editor is a drawer: start closed so it doesn't cover the page.
+  open: getPref('panelOpen', true) && window.innerWidth > 1200,
   mode: 'think',
   threads: [],
   prefill: null,
@@ -127,7 +142,11 @@ function prepare(input: JobInput): { built: Built; system: string; context: stri
     chapterId: input.selection?.chapterId ?? input.chapterId ?? p.currentChapterId,
     text: built.focusText ?? input.selection?.text ?? input.request,
     characterIds: built.characterIds ?? (input.characterId ? [input.characterId] : []),
+    voice: built.role === 'prose' && (built.output === 'prose' || built.output === 'revision'),
   });
+  if (built.search && getAISettings().providerId !== 'gemini')
+    built.user += '\n\nYou cannot browse the web for this answer. Answer from your own knowledge, add "(verify)" after every specific book, person or organisation you name, and leave out anything you are not confident exists.';
+  if (input.avoid) built.user += `\n\nIMPORTANT: a previous draft of this used these weak patterns. Avoid them completely this time:\n${input.avoid}`;
   return { built, system, context };
 }
 
@@ -186,21 +205,56 @@ export async function run(input: JobInput): Promise<void> {
         maxTokens: built.maxTokens,
         creativity: built.output === 'prose' || built.output === 'options' ? settings.creativity : Math.min(settings.creativity, 0.5),
         fast: built.fast,
+        search: built.search,
+        json: built.json ?? ['options', 'findings', 'extract'].includes(built.output),
+        patient: !!built.secondPass,
         signal: ctrl.signal,
         onText: (t) => patchThread(id, { streaming: t }),
       },
       settings,
     );
     recordUsage(res.usage);
-    const parsed = parse(built.output, res.text);
+    let final = res;
+    let messages: AIMessage[] = [...thread.messages, { role: 'assistant', content: res.text }];
+    if (built.secondPass && settings.providerId !== 'manual' && res.text.trim()) {
+      const draft = parse('prose', res.text)?.prose ?? res.text;
+      const pass = built.secondPass(draft, !!res.stoppedEarly);
+      patchThread(id, { stage: 'First draft done. Now your editor is line-editing it, the way a professional would…', streaming: '' });
+      try {
+        const res2 = await getProvider(settings.providerId).complete(
+          {
+            system,
+            context,
+            messages: [{ role: 'user', content: pass.user }],
+            maxTokens: pass.maxTokens,
+            creativity: Math.min(settings.creativity, 0.6),
+            patient: true,
+            signal: ctrl.signal,
+            onText: (t) => patchThread(id, { streaming: t }),
+          },
+          settings,
+        );
+        recordUsage(res2.usage);
+        const revised = parse('prose', res2.text)?.prose ?? '';
+        // Keep the first draft if the edit came back cut short or suspiciously shorter.
+        if (!res2.stoppedEarly && revised.length > draft.length * 0.75) {
+          final = res2;
+          messages = [...thread.messages, { role: 'assistant', content: res2.text }];
+        }
+      } catch (e) {
+        if (ctrl.signal.aborted) throw e;
+      }
+    }
+    const parsed = parse(built.output, final.text);
     patchThread(id, {
+      stage: '',
       status: 'done',
-      raw: res.text,
+      raw: final.text,
       parsed,
-      usage: res.usage,
+      usage: final.usage,
       streaming: '',
-      messages: [...thread.messages, { role: 'assistant', content: res.text }],
-      error: res.stoppedEarly ? 'The answer was cut short because it was very long.' : '',
+      messages,
+      error: final.stoppedEarly ? 'The answer was cut short because it was very long.' : '',
     });
   } catch (e) {
     patchThread(id, {
@@ -219,11 +273,36 @@ export async function runQuiet(input: JobInput): Promise<string> {
   const { built, system, context } = prepare(input);
   const settings = getAISettings();
   const res = await getProvider(settings.providerId).complete(
-    { system, context, messages: [{ role: 'user', content: built.user }], maxTokens: built.maxTokens, creativity: 0.3, fast: built.fast },
+    { system, context, messages: [{ role: 'user', content: built.user }], maxTokens: built.maxTokens, creativity: 0.3, fast: built.fast, search: built.search, json: built.json },
     settings,
   );
   recordUsage(res.usage);
   return res.text.trim();
+}
+
+/**
+ * Keep chapter summaries fresh in the background (cheap model), so the editor
+ * remembers earlier chapters without re-reading them. Only runs if enabled,
+ * connected, and the chapter changed substantially since its last summary.
+ */
+const summarizing = new Set<string>();
+export async function maybeSummarize(chapterId: string, force = false): Promise<boolean> {
+  const p = getState().project;
+  const ch = p?.chapters.find((c) => c.id === chapterId);
+  if (!p || !ch || summarizing.has(chapterId) || !getAISettings().apiKey) return false;
+  if (!force && (!getPref('autoSummary', true) || getAISettings().providerId === 'manual')) return false;
+  const words = countWords(ch.text);
+  if (words < 250 || (!force && ch.summary && Math.abs(words - ch.summaryWordCount) < 300)) return false;
+  summarizing.add(chapterId);
+  try {
+    const summary = await runQuiet({ actionId: 'summarize', chapterId });
+    patchItem('chapters', chapterId, { summary, summaryWordCount: words });
+    return true;
+  } catch {
+    return false;
+  } finally {
+    summarizing.delete(chapterId);
+  }
 }
 
 export async function followUp(threadId: string, question: string): Promise<void> {
@@ -284,18 +363,42 @@ function errorThread(id: string, input: JobInput, label: string, e: unknown): Th
 
 // ---------- Parsing (tolerant: a malformed answer still shows as text) ----------
 
-function extractJson(text: string): unknown {
+export function extractJson(text: string): unknown {
   const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/);
-  const candidates = [fence?.[1], text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1)];
+  const start = text.indexOf('{');
+  const candidates = [fence?.[1], text.slice(start, text.lastIndexOf('}') + 1), start >= 0 ? text.slice(start) : ''];
   for (const c of candidates) {
     if (!c) continue;
-    try {
-      return JSON.parse(c);
-    } catch {
-      /* try the next candidate */
+    for (const attempt of [c, repairJson(c)]) {
+      try {
+        return JSON.parse(attempt);
+      } catch {
+        /* try the next candidate */
+      }
     }
   }
   return null;
+}
+
+/** Fix common slips: trailing commas, smart quotes, and an answer cut off before its closing brackets. */
+function repairJson(s: string): string {
+  let t = s.replace(/[“”]/g, '"').replace(/,\s*([}\]])/g, '$1').trim();
+  // Close anything left open (answers cut short by length limits).
+  const stack: string[] = [];
+  let inStr = false;
+  for (let i = 0; i < t.length; i++) {
+    const ch = t[i];
+    if (inStr) {
+      if (ch === '\\') i++;
+      else if (ch === '"') inStr = false;
+    } else if (ch === '"') inStr = true;
+    else if (ch === '{') stack.push('}');
+    else if (ch === '[') stack.push(']');
+    else if (ch === '}' || ch === ']') stack.pop();
+  }
+  if (inStr) t += '"';
+  t = t.replace(/,\s*$/, '').replace(/,\s*"[^"]*"\s*:?\s*$/, '');
+  return t + stack.reverse().join('');
 }
 
 const str = (v: unknown) => (typeof v === 'string' ? v : v == null ? '' : Array.isArray(v) ? v.join('; ') : String(v));
@@ -310,6 +413,25 @@ export function parse(kind: OutputKind, text: string): Parsed {
   if (kind === 'prose') {
     const [prose, note] = text.split(/\n?EDITOR'S NOTE:/);
     return { prose: prose.trim(), editorNote: note?.trim() };
+  }
+  if (kind === 'extract') {
+    const j = extractJson(text) as { items?: unknown[]; summary?: unknown; questions?: unknown[] } | null;
+    const kinds = ['fact', 'clue', 'event', 'belief', 'character', 'place', 'scene', 'secret'];
+    return {
+      summary: str(j?.summary),
+      questions: Array.isArray(j?.questions) ? j!.questions.map(str).filter(Boolean) : [],
+      items: (Array.isArray(j?.items) ? j!.items : [])
+        .filter((x): x is Record<string, unknown> => !!x && typeof x === 'object')
+        .map((x) => ({
+          kind: (kinds.includes(str(x.kind)) ? str(x.kind) : 'fact') as ExtractItem['kind'],
+          title: str(x.title),
+          detail: str(x.detail),
+          characters: Array.isArray(x.characters) ? x.characters.map(str) : [],
+          when: str(x.when),
+          chapter: typeof x.chapter === 'number' ? x.chapter : parseInt(str(x.chapter)) || undefined,
+          have: x.have === true,
+        })),
+    };
   }
   if (kind === 'options' || kind === 'findings') {
     const j = extractJson(text) as Record<string, unknown> | null;

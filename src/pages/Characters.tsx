@@ -124,6 +124,7 @@ function CharacterDetail({ c, onBack }: { c: Character; onBack: () => void }) {
             </p>
           </div>
           <div className="card stack" style={{ gap: 8 }}>
+            <AskButton action="interview" label={`Interview ${c.name.split(' ')[0]}`} input={{ characterId: c.id }} />
             <AskButton action="developCharacter" label="Develop this character" input={{ characterId: c.id }} />
             <AskButton action="characterCheck" label="Check consistency" input={{ characterId: c.id }} run />
             <AskButton action="ask" label="Ask about them" input={{ characterId: c.id, request: `About ${c.name}: ` }} />

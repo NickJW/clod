@@ -1,12 +1,15 @@
 // First launch: a friendly, skippable conversation that seeds the story bible.
 import { useState } from 'react';
-import { createProject, useApp, openProject, deleteProject } from '../story/store';
+import { createProject, useApp, openProject, deleteProject, setState } from '../story/store';
 import { newCharacter, newIdea, newProject } from '../story/factory';
 import { demoProject } from '../story/seed';
-import { AutoTextarea, Icon, confirmDialog } from '../components/ui';
+import { AutoTextarea, Icon, confirmDialog, TourButton } from '../components/ui';
+import { DriveOpenButton } from '../components/DrivePanel';
+import { driveAvailable } from '../services/drive';
 import { timeAgo } from '../story/reference';
 import { readBackup } from '../services/exporter';
-import { useSpeech } from '../editor/speech';
+import { joinSpoken, useSpeech } from '../editor/speech';
+import { setPref } from '../storage/db';
 
 const KINDS = ['Psychological thriller', 'Dark mystery', 'Crime / detective', 'Gothic mystery', 'Romantic suspense', 'Domestic suspense', 'Not sure yet'];
 
@@ -19,12 +22,15 @@ interface Answers {
   mystery: string;
   ending: string;
   feel: string;
+  chatApp: 'chatgpt' | 'claude';
+  chatWhere: 'app' | 'web';
 }
 
 export function Onboarding() {
   const projects = useApp((s) => s.projects);
-  const [step, setStep] = useState(projects.length ? -1 : 0);
-  const [a, setA] = useState<Answers>({ title: '', kinds: [], know: '', heroName: '', hero: '', mystery: '', ending: '', feel: '' });
+  const startNew = useApp((s) => s.startNew);
+  const [step, setStep] = useState(projects.length && !startNew ? -1 : 0);
+  const [a, setA] = useState<Answers>({ title: '', kinds: [], know: '', heroName: '', hero: '', mystery: '', ending: '', feel: '', chatApp: 'chatgpt', chatWhere: 'app' });
   const set = (patch: Partial<Answers>) => setA((x) => ({ ...x, ...patch }));
 
   if (step === -1)
@@ -68,6 +74,7 @@ export function Onboarding() {
                 Open the demo novel
               </button>
             )}
+            <DriveOpenButton />
             <RestoreButton />
           </div>
         </div>
@@ -83,6 +90,9 @@ export function Onboarding() {
             You bring the story. Nightjar keeps everything organised, and your AI editor helps you think, plan and polish, one piece at a time. You stay in charge of every decision.
           </p>
           <p className="muted">A few quick questions will get you started. You can skip any of them and change everything later.</p>
+          <p>
+            <TourButton className="btn" label="First, watch the 7-minute video tour" />
+          </p>
           <label className="field">
             <span className="lab">Does your book have a working title?</span>
             <input className="input serif" value={a.title} onChange={(e) => set({ title: e.target.value })} placeholder="It's fine to leave this blank" autoFocus />
@@ -124,6 +134,9 @@ export function Onboarding() {
   ];
 
   const finish = async () => {
+    setPref('chatApp', a.chatApp);
+    setPref('chatWhere', a.chatWhere);
+    setPref('chatAppChosen', true);
     const p = newProject(a.title.trim() || 'My Novel');
     if (a.kinds.length) p.bible.genre = a.kinds.filter((k) => k !== 'Not sure yet').join(' / ') || p.bible.genre;
     p.bible.premise = a.know.trim();
@@ -137,6 +150,7 @@ export function Onboarding() {
     }
     if (a.mystery.trim()) p.ideas.push(newIdea(a.mystery.trim(), { status: 'draft', category: 'mystery' }));
     await createProject(p);
+    setState({ page: 'guide' });
   };
 
   const cur = steps[step];
@@ -158,7 +172,7 @@ export function Onboarding() {
           )}
           <span className="spacer" />
           {step === 0 && (
-            <button className="btn" onClick={() => createProject(demoProject())} title="A finished example novel to explore">
+            <button className="btn" onClick={() => { const demo = projects.find((x) => x.isDemo); void (demo ? openProject(demo.id) : createProject(demoProject())); }} title="A finished example novel to explore">
               Explore a demo novel first
             </button>
           )}
@@ -189,13 +203,18 @@ export function Onboarding() {
             Moving from another computer? <RestoreButton link />
           </p>
         )}
+        {step === 0 && !projects.length && driveAvailable() && (
+          <div style={{ marginTop: 10 }}>
+            <DriveOpenButton className="btn" />
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
 function Voice({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder: string }) {
-  const s = useSpeech((t) => onChange((value ? value.replace(/\s*$/, ' ') : '') + t));
+  const s = useSpeech((t) => onChange(joinSpoken(value, t)));
   return (
     <div>
       <AutoTextarea className="input serif" value={value} onChange={onChange} placeholder={placeholder} minRows={4} />

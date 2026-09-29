@@ -254,6 +254,12 @@ export interface Tone {
   description: string; // "disturbing but not gratuitous"
   styleWords: string; // "restrained, claustrophobic, literary but accessible"
   avoid: string; // things the author never wants
+  /** Authors and books she loves, and what she loves about them. */
+  influences: string;
+  /** How strongly the influences should show in the writing. */
+  influenceStrength: 'subtle' | 'balanced' | 'strong';
+  /** Concrete style guide distilled from her influences and her own pages. */
+  styleProfile: string;
 }
 
 export interface StoryBible {
@@ -267,6 +273,40 @@ export interface StoryBible {
   structure: string;
   povPlan: string;
   tense: string;
+  /** House style decisions (spellings, numbers, punctuation) like a copyeditor's style sheet. */
+  styleSheet: string;
+  /** Recurring images and objects to track across the book, comma-separated. */
+  motifs: string;
+}
+
+export type AgentStatus = 'researching' | 'queried' | 'requested' | 'rejected' | 'offer' | 'no response';
+
+export interface Agent {
+  id: string;
+  name: string;
+  agency: string;
+  link: string;
+  status: AgentStatus;
+  queriedOn: string;
+  notes: string;
+}
+
+export interface Publishing {
+  logline: string;
+  blurb: string;
+  synopsis: string;
+  query: string;
+  bio: string;
+  comps: string;
+  agents: Agent[];
+}
+
+export interface SeriesInfo {
+  name: string;
+  bookNumber: number;
+  previousProjectId: string;
+  arc: string;
+  seeds: string;
 }
 
 export interface Project extends Base {
@@ -298,6 +338,36 @@ export interface Project extends Base {
   places: Place[];
   research: ResearchItem[];
   notes: Note[];
+
+  publishing: Publishing;
+  series: SeriesInfo;
+  /** Saved results of whole-book analyses (page-turner chart, solvability test…). */
+  lab: Record<string, { at: number; data: unknown }>;
+  /** Fingerprints of paragraphs that came from the AI editor, per chapter, to show what she hasn't rewritten yet. */
+  aiText: Record<string, string[]>;
+  /** The yarn board: pinned cards and the red strings between them. */
+  board: Board;
+}
+
+export type PinKind = 'character' | 'clue' | 'secret' | 'event' | 'place' | 'note';
+export interface Pin {
+  id: string; // the item's id (or a note's own id)
+  kind: PinKind;
+  x: number;
+  y: number;
+  tilt: number;
+  text?: string; // notes only
+}
+export interface Yarn {
+  id: string;
+  a: string;
+  b: string;
+  label: string;
+  auto: boolean; // placed by "Pin it all up for me" (re-arranging replaces these, never hers)
+}
+export interface Board {
+  pins: Pin[];
+  strings: Yarn[];
 }
 
 export type CollectionKey =

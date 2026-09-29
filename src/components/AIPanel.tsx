@@ -14,19 +14,23 @@ import {
   run,
   setPanel,
   usePanel,
+  type ExtractItem,
   type Option,
   type Thread,
 } from '../ai/session';
 import { getAISettings } from '../ai/provider';
-import { addItem, getState, go, patchItem, toast, useApp } from '../story/store';
-import { newIdea, newNote } from '../story/factory';
+import { addItem, getState, go, markAiText, patchItem, toast, updateProject, useApp } from '../story/store';
+import { paragraphs, paraPrint } from '../editor/freshness';
+import { newBelief, newCharacter, newClue, newEvent, newFact, newIdea, newNote, newPlace, newSecret } from '../story/factory';
+import { checkProse } from '../editor/proseCheck';
+import { recordTaste } from '../ai/context';
 import { applyReplacement, currentSelection, cursorSelection, insertText } from '../editor/bridge';
 import { diffWords } from '../editor/diff';
-import { useSpeech } from '../editor/speech';
+import { joinSpoken, useSpeech } from '../editor/speech';
 import { setPref } from '../storage/db';
 import { Icon, Markdown } from './ui';
 import type { CanonStatus } from '../types';
-import { chapterLabel } from '../story/reference';
+import { chapterLabel, countWords } from '../story/reference';
 
 export function AIPanel() {
   const open = usePanel((s) => s.open);
@@ -44,6 +48,8 @@ export function AIPanel() {
 
   const connected = !!getAISettings().apiKey;
   return (
+    <>
+    <div className="ai-backdrop" onClick={() => toggle(false)} />
     <aside className="ai" aria-label="Your editor">
       <div className="ai-head">
         <div className="row">
@@ -64,7 +70,7 @@ export function AIPanel() {
       {!connected && (
         <div className="ai-compose">
           <div className="note-box">
-            <b>Your AI editor isn't connected yet.</b> It takes about two minutes.
+            <b>Your AI editor isn't connected yet.</b> It's free and takes about 3 minutes. If someone set Nightjar up for you, open the setup link they sent.
             <div style={{ marginTop: 8 }}>
               <button className="btn primary small" onClick={() => go('settings')}>
                 Connect it
@@ -78,12 +84,13 @@ export function AIPanel() {
         {threads.length === 0 ? <QuickStart /> : threads.map((t) => <ThreadView key={t.id} t={t} />)}
       </div>
     </aside>
+    </>
   );
 }
 
-function toggle(open: boolean) {
+export function toggle(open: boolean) {
   setPanel({ open });
-  setPref('panelOpen', open);
+  if (window.innerWidth > 1200) setPref('panelOpen', open);
 }
 
 function Modes() {
@@ -105,7 +112,7 @@ function Compose({ page }: { page: string }) {
   const def = ACTIONS[mode];
   const [request, setRequest] = useState('');
   const [variant, setVariant] = useState('');
-  const speech = useSpeech((t) => setRequest((r) => (r ? r.replace(/\s*$/, ' ') : '') + t));
+  const speech = useSpeech((t) => setRequest((r) => joinSpoken(r, t)));
 
   useEffect(() => {
     setRequest(prefill?.request ?? '');
@@ -129,7 +136,7 @@ function Compose({ page }: { page: string }) {
   const [, force] = useState(0);
   // refresh selection hint when the author clicks into the panel
   const sel = needsSel || def.needs === 'selection-or-chapter' ? prefill?.selection ?? currentSelection() : undefined;
-  const est = useMemo(() => (getAISettings().apiKey ? estimate(input()) : { tokens: 0, label: '' }), [mode, request, variant, prefill, sel?.text]); // eslint-disable-line
+  const est = useMemo(() => (getAISettings().apiKey && !['manual', 'gemini'].includes(getAISettings().providerId) ? estimate(input()) : { tokens: 0, label: '' }), [mode, request, variant, prefill, sel?.text]); // eslint-disable-line
 
   const canRun = !(def.needs === 'request' && !request.trim()) && !(needsSel && !sel) && !(mode === 'stuck' && !variant);
 
@@ -215,11 +222,15 @@ function QuickStart() {
   const quick: { id: ActionId; variant?: string }[] = [
     { id: 'stuck' },
     { id: 'workOn' },
+    { id: 'draftChapter' },
     { id: 'continue' },
     { id: 'proseReview' },
     { id: 'whyNotWorking' },
     { id: 'continuity' },
     { id: 'missing' },
+    { id: 'extract' },
+    { id: 'betaReader' },
+    { id: 'hiddenConnections' },
   ];
   return (
     <div>
@@ -232,7 +243,7 @@ function QuickStart() {
             key={q.id}
             className="btn"
             onClick={() => {
-              if (q.id === 'stuck' || q.id === 'continue') setPanel({ mode: q.id, prefill: null });
+              if (q.id === 'stuck' || q.id === 'continue' || q.id === 'draftChapter') setPanel({ mode: q.id, prefill: null });
               else void run({ actionId: q.id, selection: currentSelection(), chapterId: getState().project?.currentChapterId });
             }}
           >
@@ -248,7 +259,7 @@ function QuickStart() {
 
 function ThreadView({ t }: { t: Thread }) {
   const [reply, setReply] = useState('');
-  const speech = useSpeech((x) => setReply((r) => (r ? r + ' ' : '') + x));
+  const speech = useSpeech((x) => setReply((r) => joinSpoken(r, x)));
   const p = useApp((s) => s.project)!;
   const chapterId = t.input.selection?.chapterId ?? t.input.chapterId ?? p.currentChapterId;
 
@@ -272,7 +283,8 @@ function ThreadView({ t }: { t: Thread }) {
 
       {t.status === 'running' && (
         <div className="small muted typing">
-          {t.streaming ? (t.output === 'prose' || t.output === 'text' ? <Markdown text={t.streaming} /> : 'Thinking it through…') : 'Reading your story…'}
+          {t.stage && <div className="note-box" style={{ marginBottom: 8 }}>{t.stage}</div>}
+          {t.streaming ? (t.output === 'prose' || t.output === 'text' ? <Markdown text={t.streaming} /> : 'Thinking it through…') : t.stage ? null : t.input.actionId === 'draftChapter' ? 'Reading your plan, characters and clues, then writing. A whole chapter takes a minute or two…' : 'Reading your story…'}
         </div>
       )}
       {t.status === 'error' && (
@@ -298,6 +310,7 @@ function ThreadView({ t }: { t: Thread }) {
           {t.output === 'options' && <OptionsResult t={t} />}
           {t.output === 'findings' && <FindingsResult t={t} />}
           {t.output === 'text' && <TextResult t={t} chapterId={chapterId} />}
+          {t.output === 'extract' && <ExtractResult t={t} chapterId={chapterId} />}
           {t.error && <div className="tiny muted" style={{ marginTop: 6 }}>{t.error}</div>}
 
           {t.followUps.map((f, i) => (
@@ -341,7 +354,7 @@ function ThreadView({ t }: { t: Thread }) {
               Send
             </button>
           </div>
-          {t.usage && (
+          {t.usage && t.usage.inputTokens + t.usage.outputTokens > 0 && (
             <div className="cost" style={{ marginTop: 6 }}>
               {(t.usage.inputTokens + t.usage.cachedTokens + t.usage.outputTokens).toLocaleString()} tokens
               {t.usage.cachedTokens > 0 && ` (${t.usage.cachedTokens.toLocaleString()} reused at a discount)`}
@@ -349,6 +362,141 @@ function ThreadView({ t }: { t: Thread }) {
           )}
         </>
       )}
+    </div>
+  );
+}
+
+/** Runs the free local prose check on the AI's own draft, and offers a cleaner retry. */
+const DRAFT_KINDS = ['cliche', 'aivocab', 'dash', 'notbut', 'filter', 'emotion', 'ominous', 'asif', 'semi', 'rq'];
+function DraftCheck({ t, text }: { t: Thread; text: string }) {
+  const flags = useMemo(() => checkProse(text).flags.filter((f) => DRAFT_KINDS.includes(f.kind)), [text]);
+  if (!flags.length || t.applied) return null;
+  const avoid = flags.map((f) => `- ${f.title}${f.examples.length ? `, e.g. ${f.examples.slice(0, 3).map((e) => `"${e.text}"`).join('; ')}` : ''}`).join('\n');
+  return (
+    <div className="note-box" style={{ marginTop: 8 }}>
+      <b>Quality check:</b> this draft has some habits of generic prose: {flags.map((f) => f.title.replace(/ \(\d+\)$/, '').toLowerCase()).join(', ')}.
+      <div className="row" style={{ marginTop: 6 }}>
+        <button className="btn small" onClick={() => void run({ ...t.input, avoid })}>
+          Ask for a cleaner version
+        </button>
+      </div>
+    </div>
+  );
+}
+
+const EXTRACT_LABEL: Record<ExtractItem['kind'], string> = {
+  fact: 'Fact',
+  clue: 'Clue',
+  event: 'Timeline event',
+  belief: 'Belief',
+  character: 'New character',
+  place: 'New place',
+  scene: 'Scene',
+  secret: 'Secret',
+};
+
+function ExtractResult({ t, chapterId: chapterIdIn }: { t: Thread; chapterId: string }) {
+  const items = t.parsed?.items;
+  if (!items) return <Markdown text={t.raw} />;
+  const backwards = t.input.actionId === 'backwards';
+  if (!items.length) return <div className="ok-box">{backwards ? 'Nothing to add.' : 'Your story bible already covers everything this chapter establishes.'}</div>;
+  const add = (it: ExtractItem, i: number, status: CanonStatus) => {
+    const p = getState().project!;
+    // For "plan backwards", place things in the suggested chapter.
+    const chapterId = backwards ? (it.chapter && p.chapters[it.chapter - 1]?.id) || '' : chapterIdIn;
+    const ids = it.characters.map((n) => p.characters.find((c) => c.name.toLowerCase().includes(n.toLowerCase().split(' ')[0]))?.id).filter((x): x is string => !!x);
+    const text = it.detail || it.title;
+    if (it.kind === 'fact') addItem('facts', newFact(text, { readerLearnsChapterId: chapterId, status }));
+    if (it.kind === 'clue') addItem('clues', newClue({ title: it.title, description: it.detail, appearsChapterId: chapterId, whoKnowsIds: ids, status }));
+    if (it.kind === 'event') addItem('timeline', newEvent({ title: it.title, description: it.detail, chapterId, characterIds: ids, dateKind: 'approx', approxLabel: it.when, order: Date.now(), status }));
+    if (it.kind === 'belief') addItem('beliefs', newBelief(ids[0] ?? '', { belief: text, sinceChapterId: chapterId, status }));
+    if (it.kind === 'character') addItem('characters', newCharacter(it.title, { fields: { personality: it.detail }, status }));
+    if (it.kind === 'place') addItem('places', newPlace({ name: it.title, description: it.detail }));
+    if (it.kind === 'secret') addItem('secrets', newSecret({ title: it.title, description: it.detail, holderIds: ids, revealChapterId: chapterId, status }));
+    if (it.kind === 'scene') {
+      const ch = p.chapters.find((c) => c.id === chapterId);
+      if (ch) patchItem('chapters', ch.id, { outline: { ...ch.outline, plan: `${ch.outline.plan ? ch.outline.plan + '\n\n' : ''}• ${it.title}: ${it.detail}` } });
+      else addItem('ideas', newIdea(`${it.title}: ${it.detail}`, { status, category: 'scene', source: 'ai' }));
+    }
+    const where = chapterId && it.kind === 'scene' ? ` to ${chapterLabel(p, chapterId)}'s plan` : '';
+    markHandled(t.id, i, status === 'canon' ? `Added${where}` : 'Added as a possibility');
+  };
+  return (
+    <>
+      {backwards ? (
+        <>
+          {t.parsed?.summary && <p style={{ fontSize: '0.95rem' }}>{t.parsed.summary}</p>}
+          <p className="small muted">From the start of the book to your ending. Green ones are already in your story. Add the missing ones you like.</p>
+        </>
+      ) : (
+        <p className="small muted">Found in {chapterLabel(getState().project!, chapterIdIn)}. Add what's right. Skip anything that isn't.</p>
+      )}
+      {items.map((it, i) => (
+        <div key={i} className={`opt${t.handled[i] || it.have ? ' done' : ''}`}>
+          <div className="row" style={{ gap: 6 }}>
+            {backwards && it.chapter ? <span className="pill accent">Ch. {it.chapter}</span> : null}
+            <span className="pill neutral">{EXTRACT_LABEL[it.kind]}</span>
+            <b>{it.title}</b>
+            {it.have && <span className="pill canon">✓ Already there</span>}
+          </div>
+          <div className="small" style={{ margin: '4px 0' }}>{it.detail}</div>
+          {it.have ? null : t.handled[i] ? (
+            <div className="tiny" style={{ color: 'var(--ok)' }}>✓ {t.handled[i]}</div>
+          ) : (
+            <div className="row" style={{ gap: 6 }}>
+              <button className="btn primary small" onClick={() => add(it, i, 'canon')}>
+                {it.kind === 'scene' && backwards ? `Add to chapter plan` : 'Add to story bible'}
+              </button>
+              {it.kind !== 'place' && (
+                <button className="btn small" onClick={() => add(it, i, 'possibility')}>
+                  Add as "maybe"
+                </button>
+              )}
+              <button className="btn ghost small" onClick={() => markHandled(t.id, i, 'Skipped')}>
+                Skip
+              </button>
+            </div>
+          )}
+        </div>
+      ))}
+      {t.parsed?.questions && t.parsed.questions.length > 0 && (
+        <div className="note-box" style={{ marginTop: 10 }}>
+          <b>To decide</b>
+          <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>
+            {t.parsed.questions.map((q, k) => (
+              <li key={k}>{q}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </>
+  );
+}
+
+const KEEP_REASONS = ['too flowery', 'not my voice', 'changed too much', 'lost my meaning', 'too plain', 'too many changes to check'];
+
+function WhyKept({ threadId }: { threadId: string }) {
+  const [done, setDone] = useState('');
+  if (done) return <div className="tiny muted" style={{ marginTop: 6 }}>Thanks. Your editor will remember ("{done}").</div>;
+  return (
+    <div style={{ marginTop: 8 }}>
+      <div className="tiny muted">Why? One tap teaches your editor your taste (optional):</div>
+      <div className="chips" style={{ marginTop: 4 }}>
+        {KEEP_REASONS.map((r) => (
+          <button
+            key={r}
+            className="chip"
+            style={{ minHeight: 28, padding: '2px 10px', fontSize: '0.8rem' }}
+            onClick={() => {
+              recordTaste(getState().project!.id, 'rejected', r);
+              setDone(r);
+              markHandled(threadId, -1, r);
+            }}
+          >
+            {r}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
@@ -381,19 +529,27 @@ function ProseResult({ t, chapterId }: { t: Thread; chapterId: string }) {
   const p = useApp((s) => s.project)!;
   const page = useApp((s) => s.page);
   const prose = t.parsed?.prose ?? t.raw;
+  const draft = t.input.actionId === 'draftChapter';
   return (
     <>
+      {draft && (
+        <div className="note-box" style={{ marginBottom: 8 }}>
+          A first draft ({countWords(prose).toLocaleString()} words), already line-edited once. It's raw material: the best books come from the author rewriting drafts like this in her own words.
+        </div>
+      )}
       <div className="prose-out">{prose}</div>
+      <DraftCheck t={t} text={prose} />
       {t.parsed?.editorNote && <div className="note-box" style={{ marginTop: 8 }}>{t.parsed.editorNote}</div>}
       {t.applied ? (
         <div className="ok-box" style={{ marginTop: 8 }}>{t.applied}</div>
       ) : (
         <div className="row" style={{ marginTop: 10 }}>
-          {page === 'write' && (
+          {page === 'write' && !draft && (
             <button
               className="btn primary small"
               onClick={() => {
                 insertText(chapterId, prose, 'cursor', `Before adding "${t.label}"`);
+                markAiText(chapterId, prose);
                 markApplied(t.id, 'Added to your chapter at the cursor.');
               }}
             >
@@ -401,13 +557,19 @@ function ProseResult({ t, chapterId }: { t: Thread; chapterId: string }) {
             </button>
           )}
           <button
-            className="btn small"
+            className={`btn small${draft ? ' primary' : ''}`}
             onClick={() => {
               insertText(chapterId, prose, 'end', `Before adding "${t.label}"`);
-              markApplied(t.id, `Added to the end of ${chapterLabel(p, chapterId)}.`);
+              markAiText(chapterId, prose);
+              markApplied(
+                t.id,
+                draft
+                  ? `Added to ${chapterLabel(p, chapterId)}. Now make it yours: read it aloud, and change anything that doesn't sound like you. (History in the Write view can undo this.)`
+                  : `Added to the end of ${chapterLabel(p, chapterId)}.`,
+              );
             }}
           >
-            Add to end of chapter
+            {draft ? 'Put this draft in the chapter' : 'Add to end of chapter'}
           </button>
           <button className="btn small" onClick={() => retry(t.id)}>
             Show me another version
@@ -444,12 +606,14 @@ function RevisionResult({ t }: { t: Thread }) {
             ? revised
             : parts.map((x, i) => (x.type === 'same' ? <span key={i}>{x.text}</span> : x.type === 'add' ? <ins key={i}>{x.text}</ins> : <del key={i}>{x.text}</del>))}
       </div>
+      <DraftCheck t={t} text={revised} />
       {t.parsed?.notes && (
         <div style={{ marginTop: 10 }}>
           <div className="small" style={{ fontWeight: 600 }}>What changed and why</div>
           <Markdown text={t.parsed.notes} />
         </div>
       )}
+      {t.applied === 'Kept your original.' && <WhyKept threadId={t.id} />}
       {t.applied ? (
         <div className="ok-box" style={{ marginTop: 8 }}>
           {t.applied}
@@ -473,7 +637,13 @@ function RevisionResult({ t }: { t: Thread }) {
             disabled={!sel}
             onClick={() => {
               if (!sel) return;
-              if (applyReplacement(sel.chapterId, sel.start, original, revised, `Before "${t.label}"`)) markApplied(t.id, 'Accepted. Your original was kept in History.');
+              if (applyReplacement(sel.chapterId, sel.start, original, revised, `Before "${t.label}"`)) {
+                markApplied(t.id, 'Accepted. Your original was kept in History.');
+                // Only paragraphs the edit actually changed count as the editor's words.
+                const mine = new Set(paragraphs(original).map(paraPrint));
+                markAiText(sel.chapterId, paragraphs(revised).filter((x) => !mine.has(paraPrint(x))).join('\n\n'));
+                recordTaste(getState().project!.id, 'accepted', REVISION_LEVELS.find((l) => l.id === t.input.variant)?.label ?? t.label);
+              }
               else toast('That passage has changed since you asked, so it wasn\'t replaced. Copy the suggestion instead.', 'error');
             }}
           >
@@ -548,7 +718,7 @@ function OptionsResult({ t }: { t: Thread }) {
         </div>
       )}
       {parsed.options?.map((o, i) => (
-        <div key={i} className={`opt${t.handled[i] ? ' done' : ''}`}>
+        <div key={i} className={`opt${t.handled[i] ? ' done' : ''}`} style={{ animationDelay: `${i * 70}ms` }}>
           <div className="ot">{o.title || `Option ${i + 1}`}</div>
           <div style={{ margin: '4px 0' }}>{o.idea}</div>
           <details>
@@ -602,7 +772,7 @@ function FindingsResult({ t }: { t: Thread }) {
     <>
       {parsed.summary && <p style={{ fontSize: '0.95rem' }}>{parsed.summary}</p>}
       {parsed.findings?.map((f, i) => (
-        <div key={i} className={`finding ${f.level?.startsWith('likely') ? 'likely' : f.level?.startsWith('worth') ? 'worth' : 'note'}`}>
+        <div key={i} style={{ animationDelay: `${i * 60}ms` }} className={`finding ${f.level?.startsWith('likely') ? 'likely' : f.level?.startsWith('worth') ? 'worth' : 'note'}`}>
           <div className="row" style={{ gap: 6 }}>
             <span className="ft">{f.title}</span>
             {f.level && f.level !== 'note' && <span className={`pill ${f.level.startsWith('likely') ? 'accent' : 'warn'}`}>{f.level}</span>}
@@ -667,6 +837,33 @@ function TextResult({ t, chapterId }: { t: Thread; chapterId: string }) {
             }}
           >
             Save as chapter plan
+          </button>
+        )}
+        {id === 'styleProfile' && (
+          <button
+            className="btn small primary"
+            disabled={!!saved}
+            onClick={() => {
+              const p = getState().project!;
+              updateProject({ tone: { ...p.tone, styleProfile: t.raw.trim() } });
+              setSaved('Saved as your style guide (Story Bible → Tone & feel). Your editor will follow it whenever it writes for you.');
+            }}
+          >
+            Use as my style guide
+          </button>
+        )}
+        {(id === 'pitch' || id === 'queryBuilder' || id === 'pitchComps') && (
+          <button
+            className="btn small primary"
+            disabled={!!saved}
+            onClick={() => {
+              const p = getState().project!;
+              const key = id === 'queryBuilder' ? 'query' : id === 'pitchComps' ? 'comps' : ((t.input.variant ?? 'blurb') as 'logline' | 'blurb' | 'synopsis');
+              updateProject({ publishing: { ...p.publishing, [key]: t.raw.replace(/\n\*\*Sources[\s\S]*$/, '').trim() } });
+              setSaved(`Saved to Publish → Pitch materials (${key}). Rewrite it in your own words there.`);
+            }}
+          >
+            Save to my pitch materials
           </button>
         )}
         {(id === 'develop' || id === 'developCharacter') && (

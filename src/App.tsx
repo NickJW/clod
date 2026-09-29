@@ -1,9 +1,17 @@
-import { useEffect } from 'react';
-import { go, useApp, type Page } from './story/store';
-import { AIPanel } from './components/AIPanel';
+import { useEffect, useState } from 'react';
+import { closeProject, go, useApp, type Page } from './story/store';
+import { AIPanel, toggle as toggleEditor } from './components/AIPanel';
+import { ManualHost } from './components/ManualHost';
+import { Celebrate } from './components/Celebrate';
+import { DriveBanner } from './components/DrivePanel';
+import { Helper } from './components/Helper';
+import { VoiceStatus } from './components/VoiceStatus';
+import { HomeScreenNote } from './components/HomeScreenNote';
+import { useDrive } from './services/drive';
 import { ConfirmHost, Icon, Toasts } from './components/ui';
 import { Onboarding } from './pages/Onboarding';
 import { Home } from './pages/Home';
+import { Guide, GuideBanner } from './pages/Guide';
 import { Write } from './pages/Write';
 import { Story } from './pages/Story';
 import { Characters } from './pages/Characters';
@@ -12,12 +20,17 @@ import { Timeline } from './pages/Timeline';
 import { Scenes } from './pages/Scenes';
 import { Ending } from './pages/Ending';
 import { Research } from './pages/Research';
+import { Lab } from './pages/Lab';
+import { Polish } from './pages/Polish';
+import { Publish } from './pages/Publish';
+import { Series } from './pages/Series';
 import { Settings, applyAppearance } from './pages/Settings';
 import { manuscriptWords } from './story/reference';
 
-const NAV: { page: Page; label: string; icon: string; hint: string }[] = [
+const NAV: { page: Page; label: string; icon: string; hint: string; group?: string }[] = [
   { page: 'home', label: 'Home', icon: 'home', hint: 'Your novel at a glance' },
-  { page: 'write', label: 'Write', icon: 'write', hint: 'Your chapters' },
+  { page: 'guide', label: 'Guide', icon: 'compass', hint: 'Step-by-step: how to use the studio to write your book' },
+  { page: 'write', label: 'Write', icon: 'write', hint: 'Your chapters', group: 'Write your book' },
   { page: 'story', label: 'Story Bible', icon: 'story', hint: 'Premise, tone and decisions' },
   { page: 'characters', label: 'Characters', icon: 'characters', hint: 'People and relationships' },
   { page: 'mystery', label: 'Mystery', icon: 'mystery', hint: 'Clues, secrets, twists' },
@@ -25,6 +38,10 @@ const NAV: { page: Page; label: string; icon: string; hint: string }[] = [
   { page: 'scenes', label: 'Scenes & Outline', icon: 'scenes', hint: 'Plan chapters and scenes' },
   { page: 'ending', label: 'Ending', icon: 'ending', hint: 'How it all resolves' },
   { page: 'research', label: 'Research & Notes', icon: 'research', hint: 'Places, facts, notes' },
+  { page: 'lab', label: 'Story Lab', icon: 'spark', hint: 'Make it gripping: page-turner charts, solvability, stress tests', group: 'Make it great' },
+  { page: 'polish', label: 'Polish', icon: 'check', hint: 'Health report, style sheet, proofreading' },
+  { page: 'publish', label: 'Publish', icon: 'upload', hint: 'Market, pitch, agents, submissions', group: 'Get it published' },
+  { page: 'series', label: 'Series', icon: 'book', hint: 'Series potential and sequels' },
 ];
 
 export default function App() {
@@ -32,6 +49,9 @@ export default function App() {
   const project = useApp((s) => s.project);
   const page = useApp((s) => s.page);
   const focus = useApp((s) => s.focusMode);
+  const otherWindow = useApp((s) => s.otherWindow);
+  const driveOn = useDrive((s) => s.enabled);
+  const [navOpen, setNavOpen] = useState(false);
 
   useEffect(() => applyAppearance(), []);
 
@@ -39,7 +59,9 @@ export default function App() {
   if (!project)
     return (
       <>
+        <HomeScreenNote />
         <Onboarding />
+        <VoiceStatus />
         <Toasts />
         <ConfirmHost />
       </>
@@ -47,7 +69,8 @@ export default function App() {
 
   const words = manuscriptWords(project);
   return (
-    <div className={`app${focus ? ' focus' : page === 'write' ? ' compact' : ''}`}>
+    <div className={`app${focus ? ' focus' : page === 'write' ? ' compact' : ''}${navOpen ? ' nav-open' : ''}`}>
+      {navOpen && <div className="nav-backdrop" onClick={() => setNavOpen(false)} />}
       {!focus && (
         <nav className="nav" aria-label="Main">
           <div className="brand">
@@ -63,22 +86,62 @@ export default function App() {
               {words.toLocaleString()} words{project.isDemo ? ' · demo' : ''}
             </div>
           </div>
-          {NAV.map((n) => (
-            <button key={n.page} className={`nav-item${page === n.page ? ' active' : ''}`} onClick={() => go(n.page)} title={n.hint}>
+          {NAV.map((n) => [
+            n.group && (
+              <div key={`g-${n.group}`} className="nav-group">
+                {n.group}
+              </div>
+            ),
+            <button key={n.page} className={`nav-item${page === n.page ? ' active' : ''}`} onClick={() => (go(n.page), setNavOpen(false))} title={n.hint}>
               <Icon name={n.icon} />
               <span className="lbl">{n.label}</span>
-            </button>
-          ))}
+            </button>,
+          ])}
           <div className="nav-sep" />
-          <button className={`nav-item${page === 'settings' ? ' active' : ''}`} onClick={() => go('settings')} title="AI, appearance, backups, export">
+          <button className={`nav-item${page === 'settings' ? ' active' : ''}`} onClick={() => (go('settings'), setNavOpen(false))} title="AI, appearance, backups, export">
             <Icon name="settings" />
             <span className="lbl">Settings & Backup</span>
           </button>
-          <div className="nav-foot">Your novel is saved on this computer automatically.</div>
+          <div className="nav-foot">{driveOn && !project.isDemo ? 'Saved on this computer and in your Google Drive.' : 'Your novel is saved on this computer automatically.'}</div>
         </nav>
       )}
       <main className="main">
-        {page === 'home' && <Home />}
+        {!focus && (
+          <header className="mobile-bar">
+            <button className="btn small" onClick={() => setNavOpen(true)} aria-label="Menu">
+              ☰ Menu
+            </button>
+            <span className="mobile-title">{page === 'settings' ? 'Settings' : NAV.find((n) => n.page === page)?.label}</span>
+            <button className="btn small brass" onClick={() => toggleEditor(true)}>
+              <Icon name="spark" size={15} /> Editor
+            </button>
+          </header>
+        )}
+        {otherWindow && (
+          <div className="guide-banner" style={{ background: 'var(--del)', color: 'var(--del-ink)' }}>
+            <b>Nightjar is also open in another window or tab.</b>
+            <span className="small">To avoid losing work, close the other one and keep writing here. Changes in two windows can overwrite each other.</span>
+          </div>
+        )}
+        {project.isDemo && !focus && (
+          <div className="demo-banner">
+            <span>
+              You're exploring the example book, <i>{project.title}</i>. Try anything: it's only practice.
+            </span>
+            <span className="spacer" />
+            <button className="btn small primary" onClick={() => void closeProject(true)}>
+              Start my own novel
+            </button>
+            <button className="btn small" onClick={() => void closeProject()}>
+              Back to my novels
+            </button>
+          </div>
+        )}
+        {!focus && <HomeScreenNote />}
+        {!focus && <DriveBanner />}
+        {!focus && <GuideBanner />}
+        {page === 'home' && <Home key="home" />}
+        {page === 'guide' && <Guide />}
         {page === 'write' && <Write />}
         {page === 'story' && <Story />}
         {page === 'characters' && <Characters />}
@@ -87,11 +150,19 @@ export default function App() {
         {page === 'scenes' && <Scenes />}
         {page === 'ending' && <Ending />}
         {page === 'research' && <Research />}
+        {page === 'lab' && <Lab />}
+        {page === 'polish' && <Polish />}
+        {page === 'publish' && <Publish />}
+        {page === 'series' && <Series />}
         {page === 'settings' && <Settings />}
       </main>
       {!focus && <AIPanel />}
       <Toasts />
       <ConfirmHost />
+      <ManualHost />
+      <Celebrate />
+      <Helper />
+      <VoiceStatus />
     </div>
   );
 }

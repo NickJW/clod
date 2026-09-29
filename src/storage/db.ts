@@ -3,9 +3,10 @@
 import type { Project, ProjectMeta } from '../types';
 
 const DB_NAME = 'nightjar';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const PROJECTS = 'projects';
 const SNAPSHOTS = 'snapshots';
+const KV = 'kv';
 const MAX_SNAPSHOTS = 12;
 
 export interface Snapshot {
@@ -28,6 +29,7 @@ function open(): Promise<IDBDatabase> {
         const s = db.createObjectStore(SNAPSHOTS, { keyPath: 'key' });
         s.createIndex('projectId', 'projectId');
       }
+      if (!db.objectStoreNames.contains(KV)) db.createObjectStore(KV);
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => {
@@ -70,11 +72,52 @@ export function loadProject(id: string): Promise<Project | undefined> {
 
 export async function saveProject(p: Project): Promise<void> {
   await tx(PROJECTS, 'readwrite', (s) => s.put(p));
-  // Emergency copy of the most recent state in localStorage, in case IndexedDB is ever wiped/corrupted.
+}
+
+/** The book without its per-chapter version history (which can be large). */
+export function withoutVersions(p: Project): Project {
+  return { ...p, chapters: p.chapters.map((c) => ({ ...c, versions: [] })) };
+}
+
+/**
+ * A synchronous emergency copy in localStorage, written when the window is hidden or closing
+ * (IndexedDB writes may not finish in time) and occasionally while writing.
+ */
+export function writeEmergencyCopy(p: Project): void {
   try {
-    localStorage.setItem(`nightjar:last:${p.id}`, JSON.stringify(p));
+    localStorage.setItem(`nightjar:last:${p.id}`, JSON.stringify(withoutVersions(p)));
   } catch {
     /* quota exceeded: IndexedDB is the primary store, so this is best-effort */
+  }
+}
+
+/** Which window saved a novel last, and the version it saved (lets windows notice each other's work). */
+export interface Rev {
+  at: number;
+  tab: string;
+}
+export function getRev(id: string): Rev | null {
+  try {
+    const raw = localStorage.getItem(`nightjar:rev:${id}`);
+    return raw ? (JSON.parse(raw) as Rev) : null;
+  } catch {
+    return null;
+  }
+}
+export function setRev(id: string, rev: Rev): void {
+  try {
+    localStorage.setItem(`nightjar:rev:${id}`, JSON.stringify(rev));
+  } catch {
+    /* best-effort */
+  }
+}
+
+/** Ask the browser to keep this site's storage (Safari and others may otherwise clear it after a while). */
+export async function askToKeepStorage(): Promise<void> {
+  try {
+    if (navigator.storage?.persist && !(await navigator.storage.persisted())) await navigator.storage.persist();
+  } catch {
+    /* not supported */
   }
 }
 
@@ -97,13 +140,23 @@ export function emergencyCopy(id: string): Project | null {
 }
 
 /** Automatic safety copies, taken at most every 20 minutes while writing. */
+const lastSnapshot = new Map<string, number>();
+
+/** Automatic safety copies, taken at most every 20 minutes while writing (chapter histories excluded to keep them small). */
 export async function addSnapshot(p: Project): Promise<void> {
-  const list = await listSnapshots(p.id);
-  if (list[0] && Date.now() - list[0].at < 20 * 60 * 1000) return;
-  const at = Date.now();
-  await tx(SNAPSHOTS, 'readwrite', (s) => s.put({ key: `${p.id}:${at}`, projectId: p.id, at, data: JSON.stringify(p) }));
-  for (const old of list.slice(MAX_SNAPSHOTS - 1)) {
-    await tx(SNAPSHOTS, 'readwrite', (s) => s.delete(old.key));
+  const now = Date.now();
+  if (now - (lastSnapshot.get(p.id) ?? 0) < 20 * 60 * 1000) return;
+  // Only read the keys (not the copies themselves) to find the newest and oldest.
+  const keys = ((await tx<IDBValidKey[]>(SNAPSHOTS, 'readonly', (s) => s.index('projectId').getAllKeys(p.id))) ?? []) as string[];
+  const times = keys.map((k) => Number(String(k).split(':').pop())).sort((a, b) => b - a);
+  if (times[0] && now - times[0] < 20 * 60 * 1000) {
+    lastSnapshot.set(p.id, times[0]);
+    return;
+  }
+  lastSnapshot.set(p.id, now);
+  await tx(SNAPSHOTS, 'readwrite', (s) => s.put({ key: `${p.id}:${now}`, projectId: p.id, at: now, data: JSON.stringify(withoutVersions(p)) }));
+  for (const t of times.slice(MAX_SNAPSHOTS - 1)) {
+    await tx(SNAPSHOTS, 'readwrite', (s) => s.delete(`${p.id}:${t}`));
   }
 }
 
@@ -133,4 +186,13 @@ export function setPref<T>(key: string, value: T): void {
   } catch {
     /* ignore */
   }
+}
+
+/** Small values that can't live in localStorage (e.g. a folder handle). */
+export function kvGet<T>(key: string): Promise<T | undefined> {
+  return tx<T | undefined>(KV, 'readonly', (s) => s.get(key));
+}
+
+export function kvSet(key: string, value: unknown): Promise<unknown> {
+  return tx(KV, 'readwrite', (s) => s.put(value, key));
 }

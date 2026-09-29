@@ -17,10 +17,14 @@ function friendlyHttpError(status: number, body: string): AIError {
   return new AIError(`The AI service returned an error (${status}). Your writing is safe. Please try again.`, 'other');
 }
 
+/** Claude models that think by default and don't take a temperature setting. */
+const modern = (id: string) => /claude-(opus-5|sonnet-5|fable|mythos|opus-4-[78])/.test(id);
+
 async function once(req: AIRequest, s: AISettings, withTemperature: boolean): Promise<AIResult> {
   const body: Record<string, unknown> = {
     model: req.fast ? s.fastModel : s.model,
-    max_tokens: req.maxTokens,
+    // Newer Claude models think before answering, and that counts toward max_tokens: leave room.
+    max_tokens: modern(req.fast ? s.fastModel : s.model) ? Math.min(req.maxTokens + 8000, 32000) : req.maxTokens,
     stream: true,
     system: [
       { type: 'text', text: req.system },
@@ -29,7 +33,7 @@ async function once(req: AIRequest, s: AISettings, withTemperature: boolean): Pr
     ],
     messages: req.messages,
   };
-  if (withTemperature) body.temperature = Math.max(0, Math.min(1, req.creativity));
+  if (withTemperature && !modern(String(body.model))) body.temperature = Math.max(0, Math.min(1, req.creativity));
 
   let res: Response;
   try {

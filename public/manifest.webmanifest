@@ -2,7 +2,7 @@
   "name": "Nightjar — Novel Studio",
   "short_name": "Nightjar",
   "start_url": "./",
-  "display": "standalone",
+  "display": "browser",
   "background_color": "#1c1a19",
   "theme_color": "#1c1a19",
   "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml" }]

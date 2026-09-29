@@ -2,7 +2,7 @@ name: Deploy to GitHub Pages
 
 on:
   push:
-    branches: [main]
+    branches: [main, claude/cloud-credits-usage-nt0cdq]
   workflow_dispatch:
 
 permissions:

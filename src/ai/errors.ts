@@ -2,7 +2,7 @@
 export class AIError extends Error {
   constructor(
     message: string,
-    public kind: 'no-key' | 'bad-key' | 'network' | 'busy' | 'too-long' | 'cancelled' | 'other',
+    public kind: 'no-key' | 'bad-key' | 'network' | 'busy' | 'quota' | 'too-long' | 'cancelled' | 'other',
   ) {
     super(message);
   }

@@ -1,0 +1,11 @@
+{
+  "insertAfter": "ending",
+  "scenes": [
+    {"id": "lab", "caption": "Story Lab: is it a page-turner?", "text": "Once you have a few chapters, visit the Story Lab. The page-turner analysis reads your book the way a reader would, and charts where they'd happily keep reading, and where they might put it down. It also shows the questions keeping readers hooked, and the emotional ups and downs of your story."},
+    {"id": "solve", "caption": "Solvability test and stress tests", "text": "The solvability test has three imaginary readers guess who did it after every chapter, so you can see when your mystery gets cracked. And the stress tests ask the tough questions, like what your killer would do to get away with it, and whether readers will root for your heroine."},
+    {"id": "polish", "caption": "Polish: a professional finish", "text": "On the Polish page, the health report checks your book's length, your chapter lengths, and words you might be leaning on too often. It's free and instant. You can also keep a style sheet, check names, and proofread each chapter."},
+    {"id": "publish", "caption": "Publish: pitch, agents and submissions", "text": "When the book is ready, the Publish page helps with the business side: your blurb, synopsis and query letter, a panel of imaginary agents to test it on, a list to track the agents you contact, and a submission package formatted the way agents expect."},
+    {"id": "series", "caption": "Series: plan for more books", "text": "And the Series page helps your book stand on its own while leaving room for more. When you're ready, one click starts book two, with all your characters and places carried over."},
+    {"id": "momentum", "caption": "Today's scene, and your pace", "text": "Back on Home, Today's scene suggests one small thing to write each day, and your pace shows when your first draft will be finished. Little and often is how books get written."}
+  ]
+}

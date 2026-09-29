@@ -4,6 +4,9 @@
 // and chapter summaries.
 import type { CanonStatus, Character, Project, Tone } from '../types';
 import { CHARACTER_GROUPS, chapterLabel, characterName, charactersMentioned, countWords } from '../story/reference';
+import { getPref, setPref } from '../storage/db';
+import { ownVoiceSample } from '../editor/freshness';
+import { STRENGTH } from './prompts';
 
 export type Scope = 'local' | 'mystery' | 'whole' | 'minimal';
 
@@ -13,6 +16,8 @@ export interface Focus {
   /** The passage being worked on, used to detect which characters and places are relevant. */
   text?: string;
   characterIds?: string[];
+  /** Include a sample of the author's own prose so drafts match her voice. */
+  voice?: boolean;
 }
 
 const TAG: Record<CanonStatus, string> = {
@@ -87,6 +92,17 @@ export function buildContext(p: Project, focus: Focus): string {
       (t.styleWords ? `\nDesired feel: ${t.styleWords}` : '') +
       (t.avoid ? `\nThe author never wants: ${t.avoid}` : ''),
   );
+  if (t.styleProfile?.trim() || t.influences?.trim()) {
+    out.push(
+      `## Her target style: her own voice blended with the authors she loves (${STRENGTH[t.influenceStrength ?? 'balanced']})\n` +
+        (t.styleProfile?.trim() ? `Her style guide, which you must actively apply in anything you write or revise:\n${clip(t.styleProfile, 2800)}\n` : '') +
+        (t.influences?.trim() && !minimal ? `The influences in her words: ${clip(t.influences, 900)}\n` : '') +
+        `Make the blend noticeable on the page (tone, humour, dialogue, sentence shape, pacing) at the strength above, while it stays recognisably hers. Use techniques, never an author's phrasing, and never mention these authors in the prose.`,
+    );
+  }
+  if (b.styleSheet?.trim()) out.push(`## House style sheet (follow it)\n${clip(b.styleSheet, 800)}`);
+  const taste = tasteSummary(p.id);
+  if (taste) out.push(`## What the author has taught her editor about her taste\n${taste}`);
 
   if (minimal) return out.join('\n\n');
 
@@ -290,7 +306,38 @@ export function buildContext(p: Project, focus: Focus): string {
   });
   if (chLines.length) out.push('## Chapters\n' + chLines.join('\n'));
 
+  if (focus.voice) {
+    const sample = voiceSample(p, focus.chapterId);
+    if (sample)
+      out.push(
+        `## A sample of the author's own prose\n${p.tone.styleProfile?.trim() || p.tone.influences?.trim() ? 'This is the foundation of her voice (her ear for detail, her diction, what she notices). Keep it, and layer her target style above on top of it.' : 'Match its voice, rhythm, diction and level of restraint.'} Do not copy its content or reuse its images.\n"""${sample}"""`,
+      );
+  }
+
   return out.join('\n\n');
+}
+
+/** ~350 words of the author's own prose (never paragraphs the AI drafted), preferring a chapter other than the current one. */
+function voiceSample(p: Project, currentId?: string): string {
+  return ownVoiceSample(p, currentId) || ownVoiceSample(p);
+}
+
+/** Learned from her reactions to suggested edits (see "Keep mine → why?"). */
+export function tasteSummary(projectId: string): string {
+  const t = getPref<{ rejected: Record<string, number>; accepted: Record<string, number> }>(`taste:${projectId}`, { rejected: {}, accepted: {} });
+  const rej = Object.entries(t.rejected).filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1]);
+  const acc = Object.entries(t.accepted).filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1]);
+  const lines: string[] = [];
+  if (rej.length) lines.push(`She has turned down suggested edits for being: ${rej.map(([k, n]) => `${k} (${n}×)`).join(', ')}. Avoid these tendencies.`);
+  if (acc.length) lines.push(`Edit styles she usually accepts: ${acc.slice(0, 5).map(([k, n]) => `${k} (${n}×)`).join(', ')}.`);
+  return lines.join('\n');
+}
+
+export function recordTaste(projectId: string, kind: 'rejected' | 'accepted', key: string) {
+  const k = `taste:${projectId}`;
+  const t = getPref<{ rejected: Record<string, number>; accepted: Record<string, number> }>(k, { rejected: {}, accepted: {} });
+  t[kind][key] = (t[kind][key] ?? 0) + 1;
+  setPref(k, t);
 }
 
 export function eventWhen(e: { dateKind: string; date: string; time: string; approxLabel: string }): string {

@@ -5,7 +5,7 @@ import { addItem, patchItem, removeItem, useProject } from '../story/store';
 import { newNote, newPlace, newResearch } from '../story/factory';
 import { AskButton, AutoTextarea, Empty, Field, Icon } from '../components/ui';
 import { timeAgo } from '../story/reference';
-import { useSpeech } from '../editor/speech';
+import { joinSpoken, useSpeech } from '../editor/speech';
 import { openEditor } from '../ai/session';
 
 const FACT: Record<FactStatus, { label: string; cls: string; help: string }> = {
@@ -46,7 +46,7 @@ export function Research() {
 function Notes() {
   const p = useProject();
   const [talk, setTalk] = useState('');
-  const speech = useSpeech((t) => setTalk((x) => (x ? x + ' ' : '') + t));
+  const speech = useSpeech((t) => setTalk((x) => joinSpoken(x, t)));
   const notes = [...p.notes].sort((a, b) => b.updatedAt - a.updatedAt);
   return (
     <>

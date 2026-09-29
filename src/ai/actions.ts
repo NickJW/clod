@@ -2,12 +2,13 @@
 // role, decides how much of the story it needs (to keep cost down), and says
 // what shape of answer it expects so the UI can offer the right buttons.
 import type { IdeaCategory, Project } from '../types';
-import { FORMAT, type RoleId } from './prompts';
+import { FORMAT, STRENGTH, type RoleId } from './prompts';
 import type { Scope } from './context';
-import { characterName, chapterLabel } from '../story/reference';
+import { characterName, chapterLabel, countWords } from '../story/reference';
+import { aiTellRate, draftAudit, freshnessBrief, manuscriptMetrics, ownVoiceSample, paragraphs, watchedParagraphs } from '../editor/freshness';
 import { nearbyText } from './context';
 
-export type OutputKind = 'prose' | 'revision' | 'options' | 'findings' | 'text';
+export type OutputKind = 'prose' | 'revision' | 'options' | 'findings' | 'text' | 'extract';
 
 export interface Selection {
   chapterId: string;
@@ -24,6 +25,8 @@ export interface JobInput {
   characterId?: string;
   /** Revision level, twist category, stuck-type, etc. */
   variant?: string;
+  /** Weak patterns found in a previous draft, to steer the retry away from them. */
+  avoid?: string;
 }
 
 export interface Built {
@@ -36,6 +39,12 @@ export interface Built {
   characterIds?: string[];
   fast?: boolean;
   craft?: boolean;
+  /** Use web search where the provider supports it. */
+  search?: boolean;
+  /** Ask the provider for strict JSON output. */
+  json?: boolean;
+  /** A second, line-editing pass over the first result (prose only; skipped for copy & paste). */
+  secondPass?: (draft: string, cutShort: boolean) => { user: string; maxTokens: number };
 }
 
 export type ActionId =
@@ -61,9 +70,63 @@ export type ActionId =
   | 'characterCheck'
   | 'romanceCheck'
   | 'chapterPlan'
+  | 'draftChapter'
+  | 'screening'
+  | 'styleProfile'
   | 'summarize'
   | 'research'
   | 'shape'
+  | 'extract'
+  | 'backwards'
+  | 'connect'
+  | 'hiddenConnections'
+  | 'betaReader'
+  | 'interview'
+  | 'pitch'
+  | 'bookAnalysis'
+  | 'solvability'
+  | 'readerPanel'
+  | 'killerCounter'
+  | 'plotHoles'
+  | 'detective'
+  | 'twistImpact'
+  | 'setPieces'
+  | 'rootForHer'
+  | 'chemistry'
+  | 'altEndings'
+  | 'characterArcs'
+  | 'dialogueVoices'
+  | 'premiseTest'
+  | 'hookAmplifier'
+  | 'learnFrom'
+  | 'editorialLetter'
+  | 'firstPages'
+  | 'firstLine'
+  | 'wordOfMouth'
+  | 'genrePromise'
+  | 'proofread'
+  | 'voiceDrift'
+  | 'humanPass'
+  | 'permissions'
+  | 'sensitivity'
+  | 'contentNotes'
+  | 'todayScene'
+  | 'weeklyPlan'
+  | 'trends'
+  | 'pitchComps'
+  | 'titleLab'
+  | 'coverBrief'
+  | 'readerProfile'
+  | 'queryBuilder'
+  | 'queryPanel'
+  | 'agentMatch'
+  | 'contests'
+  | 'storeListing'
+  | 'humanFeedback'
+  | 'seriesPotential'
+  | 'sequelSeeds'
+  | 'newMystery'
+  | 'seriesArc'
   | 'ask';
 
 export interface ActionDef {
@@ -88,6 +151,7 @@ export const REVISION_LEVELS: { id: string; label: string; instruction: string }
   { id: 'suspense', label: 'More suspenseful', instruction: 'MORE SUSPENSEFUL: increase uncertainty, information asymmetry, vulnerability and anticipation. Delay or withhold; don\'t announce danger.' },
   { id: 'intimate', label: 'More intimate', instruction: 'MORE INTIMATE: increase emotional closeness and interiority for the point-of-view character, through small physical detail and restraint, not declarations.' },
   { id: 'faster', label: 'Make it faster', instruction: 'FASTER: tighten pacing. Cut summary and reflection, shorten paragraphs, enter later and leave earlier.' },
+  { id: 'human', label: 'Make it sound like me', instruction: 'MAKE IT SOUND LIKE ME: remove everything that reads as machine-written or generic (stock phrases, tidy three-part lists, explained emotions or explained significance, "not X but Y", em dashes, words AI overuses, symmetrical sentences, a neat moral at the end of a paragraph) and bring it into the author\'s own voice, using her sample as the model (her rhythm, her diction, her level of plainness, even her small imperfections), blended with her style guide if she has one. Keep every fact and event. Change as little as achieves this.' },
   { id: 'literary', label: 'More literary', instruction: 'MORE LITERARY: increase specificity, subtext, imagery and thematic resonance, with occasional striking language. Do not become purple.' },
 ];
 
@@ -109,6 +173,72 @@ export const TWIST_KINDS = [
 ];
 
 export const STUCK_KINDS = ['Plot', 'Character', 'Scene', 'Mystery', 'Romance', 'Pacing', 'Ending', 'Prose', 'Research', 'I don\'t know'];
+
+/** A compact, spoiler-free view of the whole book: each chapter's summary plus its opening and closing lines. */
+function bookDigest(p: Project, excerptWords = 120): string {
+  return p.chapters
+    .map((c, n) => {
+      const words = c.text.trim().split(/\s+/).filter(Boolean);
+      if (!words.length && !c.summary) return `### Chapter ${n + 1}: ${c.title}\n(not written yet${c.outline.happens ? `; planned: ${c.outline.happens}` : ''})`;
+      const open = words.slice(0, excerptWords).join(' ');
+      const close = words.length > excerptWords * 2 ? words.slice(-excerptWords).join(' ') : '';
+      return `### Chapter ${n + 1}: ${c.title} (${words.length} words)\n${c.summary ? `Summary: ${c.summary}\n` : ''}Opening: "${open}${words.length > excerptWords ? '…' : ''}"${close ? `\nEnding: "…${close}"` : ''}`;
+    })
+    .join('\n\n');
+}
+
+function previousSummaries(p: Project, idx: number): string {
+  const prev = p.chapters.slice(0, idx).map((c, n) => `Chapter ${n + 1}: ${c.summary || c.outline.happens || '(no summary)'}`);
+  return prev.length ? `What happened before:\n${prev.join('\n')}` : '';
+}
+
+/** Pre-scan the whole book locally for passages that could need permission, so long books fit in one request. */
+function permissionCandidates(p: Project): string {
+  const out: string[] = [];
+  let size = 0;
+  const known = new Set(p.characters.flatMap((c) => c.name.split(/\s+/)));
+  p.chapters.forEach((c, n) => {
+    const paras = c.text.split(/\n\s*\n/);
+    paras.forEach((para, k) => {
+      const t = para.trim();
+      if (!t) return;
+      const lines = t.split('\n');
+      const verse = lines.length >= 3 && lines.every((l) => l.trim().split(/\s+/).length <= 10);
+      const epigraph = k === 0 && t.split(/\s+/).length < 40 && /[—–-]\s*[A-Z]/.test(t);
+      const mentions = /\b(song|sang|sings|singing|lyric|lyrics|poem|poet|verse|chorus|quoted|quote|radio|album|hymn)\b/i.test(t);
+      const italics = /\*[^*\n]{20,}\*/.test(t);
+      const names = (t.match(/\b[A-Z][a-z]+(?:\s+[A-Z][a-z']+)+\b/g) ?? []).filter((m) => !m.split(/\s+/).every((w) => known.has(w)));
+      if (verse || epigraph || mentions || italics || names.length) {
+        const piece = `[Chapter ${n + 1}] ${t.slice(0, 1200)}`;
+        if (size + piece.length < 60000) {
+          out.push(piece);
+          size += piece.length;
+        }
+      }
+    });
+  });
+  return out.join('\n\n') || '(No quotations, verse, song or poem mentions, or outside names found in the manuscript.)';
+}
+
+function premiseLine(p: Project): string {
+  return `"${p.title}", ${p.bible.genre}. ${p.bible.premise || p.mystery.centralQuestion || ''}`.slice(0, 900);
+}
+
+function endingText(p: Project): string {
+  const e = p.ending;
+  return [
+    e.resolution && `Resolution: ${e.resolution}`,
+    e.characterArcs && `Where characters end up: ${e.characterArcs}`,
+    e.romance && `Romance: ${e.romance}`,
+    e.secrets && `Secrets that come out: ${e.secrets}`,
+    e.intentionallyAmbiguous && `Deliberately ambiguous: ${e.intentionallyAmbiguous}`,
+    e.theme && `Theme: ${e.theme}`,
+    e.finalImage && `Final image: ${e.finalImage}`,
+    e.aftermath && `Aftermath: ${e.aftermath}`,
+  ]
+    .filter(Boolean)
+    .join('\n') || '(Not written yet. Use the mystery truth and premise, and ask her about the ending in "questions".)';
+}
 
 function passage(i: JobInput, p: Project): { text: string; label: string } {
   if (i.selection?.text.trim()) return { text: i.selection.text, label: 'the selected passage' };
@@ -481,6 +611,94 @@ export const ACTIONS: Record<ActionId, ActionDef> = {
       craft: false,
     }),
   },
+  draftChapter: {
+    id: 'draftChapter',
+    label: 'Draft this chapter for me',
+    blurb: 'Writes a full first draft of this chapter from your plan, characters, clues and style, then line-edits it. It\'s a starting point for you to make your own.',
+    placeholder: 'Optional: anything this draft must include, or a note on how it should feel',
+    build: (p, i) => {
+      const idx = Math.max(0, p.chapters.findIndex((c) => c.id === (i.chapterId ?? p.currentChapterId)));
+      const ch = p.chapters[idx];
+      const prev = p.chapters[idx - 1];
+      const next = p.chapters[idx + 1];
+      const perChapter = p.targetWords && p.targetChapters ? p.targetWords / p.targetChapters : 3000;
+      const target = Math.round(Math.min(4500, Math.max(1800, perChapter)) / 100) * 100;
+      const existing = ch.text.trim();
+      const remaining = existing ? Math.max(800, target - countWords(existing)) : target;
+      const clues = p.clues.filter((c) => c.appearsChapterId === ch.id && c.status !== 'discarded');
+      const resolved = p.clues.filter((c) => c.resolvedChapterId === ch.id && c.status !== 'discarded');
+      const reveals = p.secrets.filter((s) => s.revealChapterId === ch.id && s.status !== 'discarded');
+      const facts = p.facts.filter((f) => f.readerLearnsChapterId === ch.id && f.status !== 'discarded');
+      const scenes = p.scenes.filter((s) => s.chapterId === ch.id);
+      const due = [
+        ...clues.map((c) => `- Plant this clue${c.kind ? ` (${c.kind})` : ''}: ${c.title}. ${c.description}${c.trueExplanation ? ` (Its innocent explanation must stay plausible: ${c.trueExplanation})` : ''} Plant it inside ordinary action so it doesn't announce itself.`),
+        ...resolved.map((c) => `- Pay off this clue: ${c.title}. ${c.description}`),
+        ...reveals.map((s) => `- This secret comes out here: ${s.title}. ${s.description}`),
+        ...facts.map((f) => `- The reader learns: ${f.text}`),
+      ];
+      const fresh = freshnessBrief(p, ch.id);
+      const plain = (t: string) => t.replace(/\s+/g, ' ').trim();
+      return {
+        role: 'prose',
+        scope: 'local',
+        output: 'prose',
+        maxTokens: Math.min(9000, Math.round(remaining * 1.7) + 800),
+        focusText: [ch.outline.happens, ch.outline.who, ch.outline.plan, ...scenes.map((s) => `${s.title} ${s.purpose} ${s.conflict}`), i.request ?? ''].join('\n'),
+        characterIds: [...new Set([ch.povCharacterId, ...scenes.flatMap((s) => [s.povCharacterId, ...s.characterIds])].filter(Boolean))],
+        user: `Write ${existing ? `the rest of ${chapterLabel(p, ch.id)}, continuing from where her text stops` : `a complete first draft of ${chapterLabel(p, ch.id)}`}, about ${remaining.toLocaleString()} words (not fewer than ${Math.round(remaining * 0.85).toLocaleString()}: give the important scenes room to breathe). Use her plan, scenes, characters and clues in the story bible above ("Chapters" has this chapter's plan and scenes). If the plan is thin, build only what the story bible supports and list the choices you had to make in an EDITOR'S NOTE.${req(i)}
+
+${due.length ? `MUST HAPPEN IN THIS CHAPTER:\n${due.join('\n')}\n\n` : ''}${prev?.text.trim() ? `The previous chapter ends like this (continue the story from here, and don't repeat its beats):\n"""${prev.text.trim().slice(-2200)}"""\n\n` : prev?.summary ? `Previous chapter: ${prev.summary}\n\n` : ''}${next && (next.outline.plan || next.outline.happens) ? `Next chapter's plan (set it up, but don't steal its events or reveals): ${plain(next.outline.plan || next.outline.happens).slice(0, 600)}\n\n` : ''}${existing ? `HER TEXT SO FAR (continue seamlessly; do not repeat or rewrite it):\n"""${existing.slice(-5000)}"""\n\n` : ''}Before writing, silently decide: the scenes (use a line with a single * between scenes), each scene's turn (what is different at its end), what the point-of-view character wants in each, what she notices that another person wouldn't, and what stays hidden. Don't output this plan.
+
+How to write it:
+- Write like a skilled human novelist, not a machine. A publisher's reader should never suspect AI. Be specific and surprising; sometimes plain; never generic.
+- Stay in her voice: match the author's sample, point of view, tense and the tone settings. Where her influences or style guide are given, take their craft qualities, not their phrasing.
+- Enter each scene late and leave early. Dramatise the important moments; summarise the connective tissue in a line or two.
+- Give every character their own way of speaking. People evade, interrupt, misunderstand and don't say what they feel. No speeches, no exposition in dialogue.
+- One precise sensory detail beats three general ones. Ground each scene in place and body.
+- Vary sentence length and paragraph length on purpose. Avoid runs of sentences that start the same way, and avoid repeating any distinctive word or image within the chapter.
+- Plant clues inside ordinary action and let red herrings stay plausible. Keep secrets secret unless listed above.
+- End on the chapter's open question or an emotional turn, not a manufactured cliffhanger or an ominous one-liner.
+- No em dashes (—): use commas, full stops or a new sentence. No "the weight of", "a beat of silence", "something shifted", "let out a breath" or any line that explains what a moment meant.
+${fresh ? `\nKEEP IT FRESH. This book already has these patterns; don't repeat them:\n${fresh}\n` : ''}
+${FORMAT.prose}`,
+        secondPass: (draft: string, cutShort: boolean) => ({
+          maxTokens: Math.min(10000, Math.round(Math.max(countWords(draft), remaining) * 1.7) + 800),
+          user: `You are now her line editor. Below is a first draft of ${chapterLabel(p, ch.id)}. Revise it into the version a demanding editor at a major publisher would sign off on, keeping every event, fact, clue and choice in it.
+
+Fix, in this order:
+1. Anything that reads as machine-written or generic: stock phrases, tidy three-part lists, "not X but Y", explained emotions or explained significance ("a small gesture that said more than…"), ominous closing lines, symmetrical sentences, over-polished sameness. Remove every em dash (—).
+2. These specific problems found in the draft:
+${draftAudit(p, draft)}
+3. Voice: make it sound like her target style: her own voice (the sample) blended with her style guide and influences, if she has them, at the strength she chose. Keep it consistent across the chapter without repeating words, images or sentence shapes.
+4. Dialogue: sharpen it so each person sounds like themselves; cut lines that explain.
+5. Cut 5-10% of flab: throat-clearing, repeated beats, stage directions nobody needs.
+${fresh ? `\nAlso make sure it avoids what the book has already used:\n${fresh}\n` : ''}
+${cutShort ? `The draft was cut off before the end. After revising, finish the chapter in the same voice so it reaches about ${remaining.toLocaleString()} words in total, following her plan, and ending on the chapter's open question.` : `Keep every scene and at least the same length (about ${remaining.toLocaleString()} words is the target; if it's well short, deepen the scenes that matter rather than adding plot).`} Don't add new plot beyond her plan.
+
+DRAFT:
+"""${draft}"""
+
+Respond with the full revised chapter only: no title, no commentary. Keep any "EDITOR'S NOTE:" line from the draft at the end if it's still true.`,
+        }),
+      };
+    },
+  },
+  styleProfile: {
+    id: 'styleProfile',
+    label: 'Turn my influences into a style guide',
+    blurb: 'Reads the authors you love and your own pages, and writes a concrete style guide your editor follows in every draft.',
+    build: (p, i) => {
+      const own = ownVoiceSample(p, undefined, 3500);
+      return {
+        role: 'prose',
+        scope: 'minimal',
+        output: 'text',
+        maxTokens: 1600,
+        user: `The author's influences (authors and books she loves, and what she loves about them):\n"""${p.tone.influences || '(none given yet)'}"""\n${own ? `\nA sample of her own prose:\n"""${own}"""\n` : ''}${req(i)}\n\nWrite a practical style guide for HER book: a deliberate BLEND of her own voice and these influences, at this strength: ${STRENGTH[p.tone.influenceStrength ?? 'balanced']}\n\nStructure it exactly like this, in short, concrete bullets:\n"Keep from your own writing": the 3-4 most distinctive qualities of her sample (quote a few words as examples).\n"Bring in from the authors you love": the 6-8 most recognisable techniques of these influences that a reader who knows them would feel on the page: tone and attitude, humour, how dialogue works, sentence shape and pace, what the narration notices or withholds, how scenes and chapters open and end. Make each one specific enough to follow (for example "let characters say the cruel thing out loud, then cut away" rather than "sharper dialogue").\n"How they blend": 3-4 bullets on where the two meet and which leads where they clash (for example "keep your plain description, but let the dialogue take on their bite").\n"Avoid": 3-4 bullets.\nDescribe techniques, never copy phrasing or name an author's signature lines. Under 420 words. No preamble.`,
+        craft: false,
+      };
+    },
+  },
   chapterPlan: {
     id: 'chapterPlan',
     label: 'Turn my answers into a chapter plan',
@@ -554,6 +772,835 @@ export const ACTIONS: Record<ActionId, ActionDef> = {
         craft: target === 'prose',
       };
     },
+  },
+  extract: {
+    id: 'extract',
+    label: 'Update my story bible from this chapter',
+    blurb: 'Reads the chapter and lists new facts, clues, events and characters it establishes, so you can add them to your story bible with one click.',
+    build: (p, i) => {
+      const ch = p.chapters.find((c) => c.id === (i.chapterId ?? p.currentChapterId));
+      return {
+        role: 'continuity',
+        scope: 'mystery',
+        output: 'extract',
+        maxTokens: 2500,
+        focusText: ch?.text,
+        user: `Read ${ch ? chapterLabel(p, ch.id) : 'this chapter'} and list what it ESTABLISHES that is NOT already recorded in the story bible: facts, clues (or red herrings), events for the timeline, what a character now believes, new characters, new places. Only include things actually on the page. Don't add interpretation or suggestions. Skip anything already recorded, even if worded differently. At most 12 items, most important first.\n\nRespond ONLY with JSON in a \`\`\`json code block: {"items": [{"kind": "fact" | "clue" | "event" | "belief" | "character" | "place", "title": "short name", "detail": "one or two sentences, quoting the text where useful", "characters": ["names involved"], "when": "time/date if stated"}]}\n\nCHAPTER TEXT:\n"""${ch?.text ?? ''}"""`,
+        craft: false,
+      };
+    },
+  },
+  backwards: {
+    id: 'backwards',
+    label: 'Plan backwards from my ending',
+    blurb: 'Starts from your ending and works back: what must be true, what to plant, and where.',
+    category: 'plot',
+    build: (p, i) => ({
+      role: 'architect',
+      scope: 'whole',
+      output: 'extract',
+      maxTokens: 3500,
+      user: `Work BACKWARDS from the author's planned ending (see "Ending" below and the mystery truth) to build the path the book needs. For the ending to land, what must the reader have seen, learned or felt, and when? Cover: the mystery solution (clues and their placement), character arcs (the moments that change them), the romance, major secrets and their reveals, and the final image's setups. Mark each item "have": true if the story bible already covers it, false if it's missing. Suggest a chapter number where it belongs (the book currently has ${p.chapters.length} chapters of a planned ~${p.targetChapters}). Order from the beginning of the book to the end. Maximum 14 items. Mark everything as a suggestion. Don't change her ending.\n\nENDING PLAN:\n${endingText(p)}${req(i)}\n\nRespond ONLY with JSON in a \`\`\`json code block: {"summary": "one or two sentences on the overall shape", "items": [{"kind": "clue" | "scene" | "secret" | "fact" | "event" | "character", "title": "short name", "detail": "what and why it's needed for the ending", "chapter": 7, "have": false, "characters": ["names"]}], "questions": ["what she needs to decide"]}`,
+      craft: false,
+    }),
+  },
+  connect: {
+    id: 'connect',
+    label: 'Connect these',
+    blurb: 'How could these pieces of your story be connected? A few options, with the pros and cons of each.',
+    needs: 'request',
+    category: 'plot',
+    build: (_p, i) => ({
+      role: 'mystery',
+      scope: 'mystery',
+      output: 'options',
+      maxTokens: 3000,
+      user: `The author wants to connect these pieces of her story:\n${i.request}\n\nPropose 3-4 distinct, believable ways they could be connected, grounded in her canon (never contradict CANON; never reuse SET ASIDE ideas). Favour connections that deepen character and make earlier moments mean more in hindsight. Avoid coincidence.\n\n${FORMAT.options}`,
+      craft: false,
+    }),
+  },
+  hiddenConnections: {
+    id: 'hiddenConnections',
+    label: 'Find hidden connections',
+    blurb: 'Looks across your whole story for threads that could tie together in satisfying ways.',
+    category: 'plot',
+    build: (_p, i) => ({
+      role: 'architect',
+      scope: 'whole',
+      output: 'findings',
+      maxTokens: 2500,
+      user: `Look across the whole story bible for HIDDEN CONNECTIONS the author may not have noticed: characters, objects, places, clues, secrets or events that could be linked so that earlier moments pay off, coincidences become causes, and the ending feels inevitable. Also note elements that currently connect to nothing. For each finding, explain the possible connection and what it would add. These are possibilities, not instructions.${req(i)}\n\n${FORMAT.findings}`,
+      craft: false,
+    }),
+  },
+  betaReader: {
+    id: 'betaReader',
+    label: 'Read it like a reader',
+    blurb: 'A first reader who only knows what\'s on the page tells you what they felt, what confused them, and who they suspect.',
+    build: (p, i) => {
+      const ch = p.chapters.find((c) => c.id === (i.chapterId ?? p.currentChapterId));
+      const idx = ch ? p.chapters.indexOf(ch) : 0;
+      const before = p.chapters
+        .slice(0, idx)
+        .map((c, n) => `Chapter ${n + 1}: ${c.summary || c.outline.happens || '(no summary)'}`)
+        .join('\n');
+      return {
+        role: 'developmental',
+        scope: 'minimal',
+        output: 'text',
+        maxTokens: 1800,
+        user: `Act as a thoughtful first reader of dark mystery fiction (a "beta reader"), NOT an editor. You know ONLY what's on the page so far: nothing about the author's plans or the solution.${before ? `\n\nWhat happened in earlier chapters:\n${before}` : ''}\n\nNow you've just read ${ch ? `Chapter ${idx + 1}` : 'this chapter'}:\n<chapter>${ch?.text ?? ''}</chapter>\n\nWrite your honest reader's reaction in plain, warm language, under these headings: "What I felt", "Where I was gripped", "Where my attention drifted or I got confused" (quote a few words), "Who I suspect right now, and why", "What I think will happen next", "Questions I'm carrying into the next chapter". Be specific and honest. Don't give writing advice. Under 450 words.${req(i)}`,
+        craft: false,
+      };
+    },
+  },
+  interview: {
+    id: 'interview',
+    label: 'Interview this character',
+    blurb: 'Talk with your character in their own voice to discover how they speak and what they hide. Ask follow-up questions below the answer.',
+    needs: 'request',
+    placeholder: 'Ask them anything, e.g. "Where were you the night Tess died?"',
+    build: (p, i) => {
+      const c = p.characters.find((x) => x.id === i.characterId);
+      return {
+        role: 'character',
+        scope: 'whole',
+        output: 'text',
+        maxTokens: 1000,
+        characterIds: c ? [c.id] : [],
+        user: `Role-play as ${c?.name ?? 'this character'} being interviewed by the author, for the rest of this conversation. Answer in first person, in their own voice, diction and rhythm (see their profile). You know ONLY what ${c?.name ?? 'they'} would know at this point in the story. If they would lie, evade, deflect or get defensive, do that, in character, and let small tells show. Keep answers short, like real speech (1-3 short paragraphs). Don't step out of character, and don't reveal plot solutions they wouldn't admit.\n\nThe author asks: "${i.request ?? ''}"`,
+        craft: true,
+      };
+    },
+  },
+  pitch: {
+    id: 'pitch',
+    label: 'Write my pitch',
+    blurb: 'A one-line logline, a back-cover blurb, or a one-page synopsis, for when you\'re ready to share your book.',
+    build: (_p, i) => {
+      const kind = i.variant ?? 'blurb';
+      const how: Record<string, string> = {
+        logline: 'Write 5 alternative one-sentence loglines (under 35 words each): protagonist, inciting problem, stakes, and the hook. No spoilers.',
+        blurb: 'Write a back-cover blurb (150-200 words): the hook, the protagonist and what she wants, the rising threat, and a final line that makes the reader need to know. No spoilers. Avoid blurb clichés ("in a world where", "nothing is as it seems").',
+        synopsis: 'Write a one-page synopsis (about 500 words) in present tense, as agents expect: the full story INCLUDING the ending and the solution to the mystery, main characters in caps on first mention, and the emotional arc. Plain, confident prose.',
+      };
+      return {
+        role: 'architect',
+        scope: 'whole',
+        output: 'text',
+        maxTokens: 2000,
+        user: `${how[kind] ?? how.blurb} Base it only on the story bible and chapter summaries.${req(i)}`,
+        craft: true,
+      };
+    },
+  },
+  // ================= Story Lab: whole-book analysis =================
+  bookAnalysis: {
+    id: 'bookAnalysis',
+    label: 'Page-turner analysis',
+    blurb: 'Reads the whole book like a reader and charts where it grips, where it sags, and what questions keep them turning pages.',
+    build: (p) => ({
+      role: 'developmental',
+      scope: 'minimal',
+      output: 'text',
+      json: true,
+      maxTokens: 6000,
+      user: `You are an experienced reader of dark mystery and psychological thrillers. Read this book chapter by chapter, as a reader who knows only what's on the page (no author plans).\n\n${bookDigest(p)}\n\nFor EACH chapter, rate honestly (1-10, where 5 is average published quality): keepReading (at 11 p.m., would you read one more chapter?), tension, endingHook (does the last page pull you on, without being a cheap cliffhanger?). Score emotions present (0-10): dread, relief, warmth, humour, desire, grief, curiosity. List the reader questions RAISED in the chapter and the questions ANSWERED (short, e.g. "Why was Tess wearing the oilskin?"). Give a one-line note on the biggest reason a reader might put the book down there (or "none").\n\nRespond ONLY with JSON in a \`\`\`json code block: {"chapters": [{"chapter": 1, "keepReading": 7, "tension": 6, "endingHook": 7, "emotions": {"dread": 6, "relief": 1, "warmth": 3, "humour": 1, "desire": 0, "grief": 7, "curiosity": 8}, "raised": ["..."], "answered": ["..."], "putDownRisk": "..."}], "overall": "two or three sentences on the reading experience", "sags": ["where and why it sags"], "strengths": ["what's most gripping"]}`,
+      craft: false,
+    }),
+  },
+  solvability: {
+    id: 'solvability',
+    label: 'Solvability test',
+    blurb: 'Simulated readers guess the culprit after each chapter, so you see when (or whether) readers crack it.',
+    build: (p) => ({
+      role: 'developmental',
+      scope: 'minimal',
+      output: 'text',
+      json: true,
+      maxTokens: 4000,
+      user: `Simulate three different attentive readers of mystery fiction (a casual reader, a genre fan, and a puzzle-solving expert). You know ONLY what the text reveals, chapter by chapter. Here is what each chapter reveals to the reader:\n\n${bookDigest(p)}\n\nAfter EACH chapter, each reader names who they currently suspect (a character name, or "no idea"), their confidence (0-100), and the main clue or feeling behind it. Do not use any knowledge beyond the chapters so far.\n\nRespond ONLY with JSON in a \`\`\`json code block: {"chapters": [{"chapter": 1, "guesses": [{"reader": "casual", "suspect": "name", "confidence": 20, "why": "..."}, {"reader": "fan", ...}, {"reader": "expert", ...}]}]}`,
+      craft: false,
+    }),
+  },
+  readerPanel: {
+    id: 'readerPanel',
+    label: 'Reader panel',
+    blurb: 'Six readers of different ages and tastes, from a 22-year-old BookTok fan to a 68-year-old Christie devotee, react to this chapter with a keep-reading score and star rating.',
+    build: (p, i) => {
+      const ch = p.chapters.find((c) => c.id === (i.chapterId ?? p.currentChapterId));
+      const idx = ch ? p.chapters.indexOf(ch) : 0;
+      return {
+        role: 'developmental',
+        scope: 'minimal',
+        output: 'findings',
+        maxTokens: 6000,
+        user: `Six real-seeming readers from different age groups and reading habits have just read Chapter ${idx + 1}. They know only what's on the page.
+${previousSummaries(p, idx)}
+
+CHAPTER TEXT:
+<chapter>${ch?.text ?? ''}</chapter>
+
+The panel (keep each one's own voice, vocabulary and priorities):
+1. Maya, 22: finds books on BookTok, reads on her phone, loves twists, unreliable narrators and a morally grey love interest; bored fast by slow description.
+2. Jordan, 34: listens to thrillers as audiobooks on the commute; wants momentum and a clear question; notices when dialogue sounds unnatural out loud.
+3. Priya, 45: runs a book club; loves literary suspense and complicated women; wants something to discuss.
+4. Dave, 56: reads Harlan Coben and Lee Child on holiday; wants pace, stakes and a satisfying payoff; impatient with interior monologue.
+5. Linda, 68: lifelong Agatha Christie and Ann Cleeves reader, borrows from the library; plays detective, spots clues and plot holes; dislikes gratuitous violence and swearing.
+6. Rosa, 31: mainly a romance reader who picked this up for the slow-burn romance; cares about chemistry and emotional payoff.
+
+For each reader, one finding titled "<Name>, <age>: <n>/10 would keep reading · <1-5> stars", level "likely problem" for 4 or under, "worth a look" for 5-6, "note" for 7+. The detail is their honest reaction in their own voice, under 90 words: what hooked them, where they drifted (quote a few words), who they suspect now, and what they'd say to a friend about it. Put the one change that would win them over in "suggestion". The title must carry the score and stars, exactly like "Maya, 22: 3/10 would keep reading · 2 stars". Don't repeat the score, level or suggestion inside the detail. Then a final finding titled "Who this chapter wins, and who it loses" comparing the age groups and reader types, and whether the book's core audience is being served.${req(i)}\n\n${FORMAT.findings}`,
+        craft: false,
+      };
+    },
+  },
+  killerCounter: {
+    id: 'killerCounter',
+    label: 'The killer\'s counter-move',
+    blurb: 'Your culprit tries to get away with it, and shows you every hole in the investigation and every smarter move they\'d make.',
+    build: (_p, i) => ({
+      role: 'mystery',
+      scope: 'mystery',
+      output: 'findings',
+      maxTokens: 3000,
+      user: `Take the role of the story's real culprit (see the mystery truth): intelligent, motivated and desperate not to be caught. Go through the plot, the clues, the witnesses and the investigation. For each, explain (1) what you, the culprit, would realistically have done to cover it that the story doesn't account for (a plot hole the author must answer), and (2) a SMARTER move you could make that would raise the stakes and make a better, scarier antagonist. Keep it in the author's canon. Present trade-offs. A cleverer villain makes a better book.${req(i)}\n\n${FORMAT.findings}`,
+      craft: false,
+    }),
+  },
+  plotHoles: {
+    id: 'plotHoles',
+    label: 'Plot-hole hunter',
+    blurb: 'A sceptical reader\'s "why didn\'t they just…?" questions, with fixes that fit your story.',
+    build: (_p, i) => ({
+      role: 'continuity',
+      scope: 'whole',
+      output: 'findings',
+      maxTokens: 2500,
+      user: `Read the story bible and chapters as a sharp, sceptical reader. List the "why didn't they just…?" questions readers will ask: call the police, check the phone, tell someone, leave town, look in the obvious place. Also list convenient coincidences and characters who act unnaturally to serve the plot. For each, give the best in-story fix (a line of motivation, an obstacle, a planted fact). Prioritise what a reader would actually notice.${req(i)}\n\n${FORMAT.findings}`,
+      craft: false,
+    }),
+  },
+  detective: {
+    id: 'detective',
+    label: 'Detective plausibility check',
+    blurb: 'Would a competent investigator notice this? Would police procedure really go this way?',
+    build: (_p, i) => ({
+      role: 'research',
+      scope: 'mystery',
+      output: 'findings',
+      maxTokens: 2500,
+      user: `Check the investigation for realism the way crime-fiction readers will: what would a competent police detective, medical examiner or forensic team realistically find, check or do at each stage (autopsy findings, phone records, CCTV, tide and time-of-death estimates, witness interviews)? Where does the story rely on the police missing something, and is that believable (small-town resources, a closed case, bias)? Suggest a line or scene that makes it plausible. Flag facts to verify; don't invent statistics or laws.${req(i)}\n\n${FORMAT.findings}`,
+      craft: false,
+    }),
+  },
+  twistImpact: {
+    id: 'twistImpact',
+    label: 'Twist impact test',
+    blurb: 'Rates each twist for surprise and inevitability. A great twist needs both.',
+    build: (_p, i) => ({
+      role: 'mystery',
+      scope: 'mystery',
+      output: 'findings',
+      maxTokens: 2500,
+      user: `Evaluate each major twist and reveal (from the mystery truth, secrets, planned reveals and twist ideas). For each, give a finding titled "<twist>: surprise n/10, inevitability n/10". Surprise = how unexpected on first read. Inevitability = how strongly, in hindsight, the clues and character logic make it feel earned. Explain what raises the weaker score (a subtler plant, a stronger misdirect, better timing), and whether it deepens character or theme or is just a shock.${req(i)}\n\n${FORMAT.findings}`,
+      craft: false,
+    }),
+  },
+  setPieces: {
+    id: 'setPieces',
+    label: 'Set-piece planner',
+    blurb: 'Finds your most memorable scenes, the ones readers retell, and where the book needs one.',
+    build: (_p, i) => ({
+      role: 'architect',
+      scope: 'whole',
+      output: 'findings',
+      maxTokens: 2500,
+      user: `Great thrillers have four to six unforgettable set pieces: vivid, high-stakes, visual scenes readers retell (a discovery, a confrontation, a chase, a reveal in a striking place). Identify the set pieces the book has or plans, and rate how memorable each is. Then identify stretches with no set piece and propose one or two set pieces that grow from her own characters, places and mystery, with the setting, the stakes and the turn. Make them specific to her world, not generic.${req(i)}\n\n${FORMAT.findings}`,
+      craft: false,
+    }),
+  },
+  rootForHer: {
+    id: 'rootForHer',
+    label: 'Would readers root for her?',
+    blurb: 'Is your heroine active, capable and compelling? Is your villain frightening and fascinating?',
+    build: (_p, i) => ({
+      role: 'character',
+      scope: 'whole',
+      output: 'findings',
+      maxTokens: 2500,
+      user: `Assess the protagonist's appeal the way readers and agents do: agency (does she drive events or just react?), competence (what is she good at?), a sympathetic flaw, a secret or wound, wit or a distinctive way of seeing, and stakes that are personal. Then assess the antagonist: are they frightening, intelligent, and humanly understandable, or just evil? Also check that the supporting cast is vivid. For each gap, suggest specific moments that would make readers love, fear or ache for these people.${req(i)}\n\n${FORMAT.findings}`,
+      craft: false,
+    }),
+  },
+  chemistry: {
+    id: 'chemistry',
+    label: 'Chemistry check',
+    blurb: 'Banter, tension and push-and-pull. What keeps a slow-burn romance exciting.',
+    build: (_p, i) => ({
+      role: 'character',
+      scope: 'whole',
+      output: 'findings',
+      maxTokens: 2200,
+      user: `Evaluate the romantic thread for chemistry and enjoyment, not just logic: banter and distinctive exchanges, physical awareness shown through small details, push-and-pull (wanting versus reasons not to), trust tested by secrets, moments of unexpected tenderness, and whether the danger plot feeds the attraction. Point to moments that work, and propose two or three specific scenes or exchanges that would raise the heat and the ache within her tone and explicitness settings.${req(i)}\n\n${FORMAT.findings}`,
+      craft: false,
+    }),
+  },
+  altEndings: {
+    id: 'altEndings',
+    label: 'Alternative endings',
+    blurb: 'Several ways your ending could go, each judged for surprise, fairness and emotional payoff.',
+    category: 'ending',
+    build: (p, i) => ({
+      role: 'architect',
+      scope: 'whole',
+      output: 'options',
+      maxTokens: 3500,
+      user: `The author's current ending plan:\n${endingText(p)}\n\nPropose 3-4 alternative ways the book could end (including a stronger version of hers), each consistent with the canon so far. For each, cover in the fields: "why" (emotional payoff and surprise), "changes" (what must be set up earlier), "clues", "complications" (sequel potential), and "weaknesses" (fairness risks, reader frustration). Don't just go for shock. The best endings feel inevitable and devastating or satisfying.${req(i)}\n\n${FORMAT.options}`,
+      craft: false,
+    }),
+  },
+  characterArcs: {
+    id: 'characterArcs',
+    label: 'Character arc chart',
+    blurb: 'How each main character changes chapter by chapter, flagging flat or unearned arcs.',
+    build: (_p, i) => ({
+      role: 'character',
+      scope: 'whole',
+      output: 'findings',
+      maxTokens: 2500,
+      user: `For each main character, trace their arc across the chapters: what they believe and want at the start, the key turning points (with chapter numbers), and who they are by the end. One finding per character, titled "<name>: <start> → <end>". In the detail, list the turning points by chapter and flag flat stretches (no change for many chapters) and changes that aren't earned on the page. Suggest where one scene could deepen the arc.${req(i)}\n\n${FORMAT.findings}`,
+      craft: false,
+    }),
+  },
+  dialogueVoices: {
+    id: 'dialogueVoices',
+    label: 'Dialogue voice test',
+    blurb: 'If you hid the names, could you tell who\'s speaking? Finds characters who sound alike.',
+    needs: 'selection-or-chapter',
+    build: (p, i) => {
+      const x = passage(i, p);
+      return {
+        role: 'character',
+        scope: 'local',
+        output: 'findings',
+        maxTokens: 2200,
+        focusText: x.text,
+        user: `Run the "cover the names" test on the dialogue in ${x.label}. For each speaking character, describe their speech pattern on the page (sentence length, vocabulary, what they avoid saying, verbal habits). Identify lines that could be spoken by anyone, and characters who sound alike (or like the narrator). For each, rewrite one or two lines in a more distinctive voice consistent with their profile, and quote the original.\n\nTEXT:\n<chapter>${x.text}</chapter>\n\n${FORMAT.findings}`,
+        craft: true,
+      };
+    },
+  },
+  premiseTest: {
+    id: 'premiseTest',
+    label: 'Premise and hook stress test',
+    blurb: 'How strong is your hook, as an agent sees it in one sentence? And how could it be stronger?',
+    build: (_p, i) => ({
+      role: 'architect',
+      scope: 'whole',
+      output: 'findings',
+      maxTokens: 2200,
+      user: `Stress-test the premise the way a literary agent does in the first ten seconds. Findings on: the one-sentence hook (write it, then rate its originality and urgency out of 10), what's fresh versus familiar in the genre, the emotional core readers will care about, the stakes (personal and escalating), and the "why this book, why now". For each weakness, suggest a concrete way to sharpen the concept without changing her story.${req(i)}\n\n${FORMAT.findings}`,
+      craft: false,
+    }),
+  },
+  hookAmplifier: {
+    id: 'hookAmplifier',
+    label: 'Hook amplifier',
+    blurb: 'Makes your premise punchier and more high-concept, without changing your story.',
+    category: 'plot',
+    build: (_p, i) => ({
+      role: 'brainstorm',
+      scope: 'whole',
+      output: 'options',
+      maxTokens: 2500,
+      user: `Propose 3-4 ways to make the book's central concept more high-concept and irresistible ("what if…?"), using elements already in her story (sharpening, reframing or adding one twist of the knife), not replacing it. For each, "idea" is the new one-sentence hook. Fill the other fields with what changes, what it adds to marketability, and the risks.${req(i)}\n\n${FORMAT.options}`,
+      craft: false,
+    }),
+  },
+  learnFrom: {
+    id: 'learnFrom',
+    label: 'Learn from a book you love',
+    blurb: 'Paste a passage from a favourite novel. Your editor shows how it works, and how to use the technique (not the style) in your own scene.',
+    needs: 'request',
+    placeholder: 'Paste a short passage (a page or less) from a book you admire…',
+    build: (p, i) => {
+      const ch = p.chapters.find((c) => c.id === (i.chapterId ?? p.currentChapterId));
+      return {
+        role: 'prose',
+        scope: 'local',
+        output: 'text',
+        maxTokens: 2200,
+        user: `The author admires this published passage and wants to learn from it (for study only, never to copy):\n<passage>${i.request ?? ''}</passage>\n\nBreak down HOW it works as craft: point of view, what's withheld, sentence rhythm, choice of concrete detail, how dialogue and silence carry subtext, and how tension builds. Name 3-5 transferable techniques. Then show how she could apply one or two of those TECHNIQUES (not the author's voice, images or phrasing) to a moment in her own current chapter:\n<chapter>${(ch?.text ?? '').slice(-3000)}</chapter>\nDo not imitate the author's style. Headings and bullets, under 550 words.`,
+        craft: true,
+      };
+    },
+  },
+  screening: {
+    id: 'screening',
+    label: 'Publisher screening report',
+    blurb: 'Your book assessed the way agencies and publishers screen submissions: a scored reader\'s report, the checks their tools run, and the verdict (decline, consider, or request the full manuscript).',
+    build: (p, i) => {
+      const opening = p.chapters.map((c) => c.text).join('\n\n').slice(0, 12000);
+      const pub = p.publishing;
+      const watch = p.chapters.flatMap((c, n) => watchedParagraphs(p, c.id, c.text).map((w) => `- Ch. ${n + 1}: "${w.slice(0, 220)}…"`)).slice(0, 14);
+      return {
+        role: 'developmental',
+        scope: 'whole',
+        output: 'findings',
+        maxTokens: 5000,
+        json: true,
+        user: `You are the first-read screening stage for submissions at a leading literary agency and a major publisher's crime and thriller list. You combine an experienced submissions reader (who writes "reader's reports") with the automated manuscript-assessment tools agencies and publishers increasingly use to triage the slush pile. Screen this book exactly as they would. Be candid and calibrated: most submissions score 4-6; reserve 8+ for work that would genuinely stand out in a crowded inbox. Never inflate to be kind. The author will use this to revise before submitting.
+
+MEASURED (computed from the manuscript):
+${manuscriptMetrics(p)}
+
+${pub.logline ? `Her logline: ${pub.logline}\n` : ''}${pub.comps ? `Her comparable titles: ${pub.comps}\n` : ''}
+OPENING PAGES (what a screener reads first, and where most submissions are decided):
+<pages>${opening}</pages>
+
+THE WHOLE BOOK (chapter summaries, with each chapter's opening and ending):
+${bookDigest(p, 150)}
+
+Score each criterion out of 10, as one finding each, titled "<criterion>: <n>/10", with level "likely problem" for 4 or under, "worth a look" for 5-6, "note" for 7+. In the detail, quote the text where useful and say what a screener would think. In the suggestion, give the single most valuable fix. Don't repeat the score, level or suggestion inside the detail. Criteria:
+1. Opening pages and hook (would a screener read past page 5?)
+2. Premise and originality (high concept? fresh against the last five years of the genre?)
+3. Genre promise (psychological thriller and mystery conventions met or cleverly subverted; fair-play clues)
+4. Voice (distinctive and consistent, or generic?)
+5. Prose at sentence level (clarity, cliché, filtering, overwriting, rhythm)
+6. Human authenticity (screening tools and readers now flag prose that reads as AI-generated or template-like: stock phrases, explained emotions, symmetrical sentences, sameness. Quote any passages at risk)${watch.length ? `. Check these passages especially closely, and judge them only on how they read:\n${watch.join('\n')}` : ''}
+7. Protagonist and characters (agency, want versus fear, specificity)
+8. Pacing and tension across the book
+9. Dialogue
+10. Structure and length against market norms (debut psychological thrillers usually 80,000-100,000 words; chapter lengths)
+11. Market position (two or three comparable titles from the last five years, who the core readers are, and where it would sit in a bookshop)
+12. Risk flags (anything a publisher's legal or sensitivity check would raise, borrowed lyrics or quotes, factual or continuity errors)
+
+Then one more finding titled "Verdict: " followed by exactly one of Decline, Consider, or Request full (for example "Verdict: Consider"), explaining the decision in a screener's words, and one titled "What would move this to 'request full'" with the three highest-impact revisions in order. In "summary", give the overall score out of 100 and a one-line reader's-report description of the book.${req(i)}
+
+${FORMAT.findings}`,
+        craft: false,
+      };
+    },
+  },
+  editorialLetter: {
+    id: 'editorialLetter',
+    label: 'Editorial letter',
+    blurb: 'A whole-book memo like the ones professional editors write: strengths, the big issues, and a revision plan.',
+    build: (p, i) => ({
+      role: 'developmental',
+      scope: 'whole',
+      output: 'text',
+      maxTokens: 4000,
+      user: `Write a professional developmental editor's letter for this manuscript, addressed warmly to the author, as a top editor at a publishing house would. Base it on the story bible, chapter summaries and these excerpts:\n${bookDigest(p, 250)}\n\nStructure: a short opening on what the book is and what's special about it; "What's working" (specific); "The three biggest opportunities" (big-picture, such as structure, stakes, character, mystery fairness, pacing, voice, marketability), each with why it matters and concrete revision suggestions; "Smaller notes"; and "A revision plan" in order of passes. Honest, specific, encouraging, and focused on making it publishable and gripping. Under 1200 words.${req(i)}`,
+      craft: false,
+    }),
+  },
+  firstPages: {
+    id: 'firstPages',
+    label: 'The agent\'s desk',
+    blurb: 'A literary agent reads your opening pages and says where they\'d stop, and whether they\'d ask for more.',
+    build: (p, i) => {
+      const opening = p.chapters.map((c) => c.text).join('\n\n').slice(0, 9000);
+      return {
+        role: 'developmental',
+        scope: 'minimal',
+        output: 'text',
+        maxTokens: 2200,
+        user: `You are a busy literary agent who represents dark psychological thrillers and reads hundreds of submissions a month. Read these opening pages as you would in your inbox:\n<pages>${opening}</pages>\n\nRespond under these headings: "First line" (rating out of 10, and why); "Where I would have stopped reading" (quote the exact sentence, or "I kept reading"); "What's working"; "What made me hesitate"; "Voice, hook, stakes, character" (a line each); "Decision" (pass / request partial / request full, and why); "What would change my answer" (three specific fixes). Be candid and specific.${req(i)}`,
+        craft: false,
+      };
+    },
+  },
+  firstLine: {
+    id: 'firstLine',
+    label: 'First-line workshop',
+    blurb: 'Your first line critiqued, with alternatives that keep your voice and your story.',
+    category: 'scene',
+    build: (p, i) => {
+      const first = p.chapters.find((c) => c.text.trim())?.text.trim().split(/\n\s*\n/).slice(0, 2).join('\n\n') ?? '';
+      return {
+        role: 'prose',
+        scope: 'local',
+        output: 'options',
+        maxTokens: 2200,
+        user: `The book's current opening:\n<opening>${first}</opening>\n\nIn "note", critique the first line: what it promises, its voice, its hook. Then offer 4 alternative first lines (or first two sentences) in her voice and consistent with her story, each taking a different approach (a striking image, a voice-led line, a line of dialogue, a quiet wrongness). Put the line in "idea", and in "why" explain what it promises the reader.${req(i)}\n\n${FORMAT.options}`,
+        craft: true,
+      };
+    },
+  },
+  wordOfMouth: {
+    id: 'wordOfMouth',
+    label: 'What will readers tell their friends?',
+    blurb: 'The hook, twist and character people will talk about, and book-club questions.',
+    build: (_p, i) => ({
+      role: 'architect',
+      scope: 'whole',
+      output: 'text',
+      maxTokens: 1800,
+      user: `Word of mouth sells books. Based on the story: (1) The one-sentence way a reader would describe it to a friend. (2) The moment or twist they'll say "you won't believe…" about, and whether the book delivers it strongly enough. (3) The character they'll talk about most. (4) The emotional experience ("I couldn't put it down" / "it wrecked me"). (5) What's missing that would make it more talkable. (6) Eight book-club discussion questions (spoiler-marked where needed). Headings, under 600 words.${req(i)}`,
+      craft: false,
+    }),
+  },
+  genrePromise: {
+    id: 'genrePromise',
+    label: 'Genre promise check',
+    blurb: 'What thriller readers expect, how your book meets or deliberately breaks those expectations, and whether your opening promises the book you deliver.',
+    build: (_p, i) => ({
+      role: 'architect',
+      scope: 'whole',
+      output: 'findings',
+      maxTokens: 2500,
+      user: `Compare the book with what readers of dark mystery and psychological thrillers expect: an early hook (a body, a disappearance or a threat within the first chapter or two), rising stakes, a midpoint reversal, a major twist around 70-80%, short to medium chapters, a satisfying resolution of the central mystery, and a protagonist with personal stakes. For each expectation: met, missing, or deliberately subverted (and whether that subversion is clear enough to feel intentional). Also check the "promise of the premise": does the opening promise the book that's delivered?${req(i)}\n\n${FORMAT.findings}`,
+      craft: false,
+    }),
+  },
+  // ================= Polish =================
+  proofread: {
+    id: 'proofread',
+    label: 'Proofread',
+    blurb: 'Typos, grammar and punctuation only. Every change shown before you accept.',
+    needs: 'selection',
+    build: (_p, i) => ({
+      role: 'prose',
+      scope: 'minimal',
+      output: 'revision',
+      maxTokens: Math.min(16000, Math.ceil((i.selection?.text.length ?? 2000) / 2.4) + 800),
+      user: `PROOFREAD ONLY. Fix spelling, typos, grammar, punctuation (including dialogue punctuation), missing or doubled words, and inconsistent capitalisation. Do NOT change word choices, style, rhythm or content, and don't "improve" anything. Keep *asterisk* italics and scene-break lines exactly. If a stylistic choice is deliberate (fragments, dialect), leave it.\n\nTEXT:\n"""${i.selection?.text ?? ''}"""\n\n${FORMAT.revision}`,
+      craft: false,
+    }),
+  },
+  humanPass: {
+    id: 'humanPass',
+    label: 'Make drafted passages sound like me',
+    blurb: 'Rewrites only the passages your editor drafted (and any with clear AI habits) so they read as your own writing. You see every change before accepting.',
+    needs: 'selection',
+    build: (p, i) => {
+      const chId = i.selection?.chapterId ?? i.chapterId ?? p.currentChapterId;
+      const text = i.selection?.text ?? '';
+      const watch = watchedParagraphs(p, chId, text);
+      const tells = paragraphs(text).filter((x) => !watch.includes(x) && aiTellRate(x).rate > 25);
+      return {
+        role: 'prose',
+        scope: 'local',
+        output: 'revision',
+        maxTokens: Math.min(12000, Math.ceil(text.length / 2.5) + 1200),
+        focusText: [...watch, ...tells].join('\n').slice(0, 3000),
+        user: `Below is a whole chapter of the author's novel. Some paragraphs began as drafts from her AI editor, and a few others have habits that screening tools flag as machine-written. Rewrite ONLY those paragraphs so they read as her own writing: her voice sample is the model (rhythm, plain words, restraint, specific detail, the occasional imperfection). Remove stock phrases, explained emotions and explained significance, tidy three-part lists, "not X but Y", em dashes, symmetrical sentences, words AI overuses, and neat closing morals. Keep every fact, event, clue and line of dialogue's meaning. Every other paragraph must come back exactly as it is, character for character.
+
+PARAGRAPHS TO REWRITE (drafted by her AI editor):
+${watch.length ? watch.map((w) => `- "${w.slice(0, 120)}…"`).join('\n') : '(none)'}
+
+ALSO REWRITE (clear AI habits):
+${tells.length ? tells.map((w) => `- "${w.slice(0, 120)}…"`).join('\n') : '(none)'}${req(i)}
+
+THE CHAPTER:
+<chapter>${text}</chapter>
+
+${FORMAT.revision}`,
+      };
+    },
+  },
+  voiceDrift: {
+    id: 'voiceDrift',
+    label: 'Voice drift check',
+    blurb: 'Compares this chapter with your own earlier writing, and flags passages that don\'t sound like you.',
+    needs: 'selection-or-chapter',
+    build: (p, i) => {
+      const x = passage(i, p);
+      const chId = i.selection?.chapterId ?? i.chapterId ?? p.currentChapterId;
+      const sample = ownVoiceSample(p, chId, 3500);
+      const watch = watchedParagraphs(p, chId, x.text);
+      return {
+        role: 'prose',
+        scope: 'minimal',
+        output: 'findings',
+        maxTokens: 2200,
+        user: `Here is a sample of the author's established voice (her own words):\n<voice>${sample}</voice>\n\nCompare ${x.label} with it:\n<chapter>${x.text}</chapter>\n${watch.length ? `\nThese paragraphs began as drafts from her AI editor, so give them extra attention (judge them only on how they read, not on where they came from):\n${watch.map((w) => `- "${w.slice(0, 160)}…"`).join('\n')}\n` : ''}\nFlag passages whose voice drifts: more ornate or more generic, a different rhythm, vocabulary she doesn't use, or "polished" prose that sounds machine-written. Quote each passage, explain the difference, and suggest how to bring it back to her voice. Also note what's consistent. If there's no sample (no earlier chapter), judge internal consistency instead.\n\n${FORMAT.findings}`,
+        craft: true,
+      };
+    },
+  },
+  permissions: {
+    id: 'permissions',
+    label: 'Permissions and legal flags',
+    blurb: 'Quoted lyrics, poems and epigraphs that need permission, and real people or businesses shown badly.',
+    build: (p) => ({
+      role: 'research',
+      scope: 'minimal',
+      output: 'findings',
+      maxTokens: 2200,
+      user: `Check these passages for publishing permission and legal risks a debut author often misses: quoted song lyrics (any length usually needs permission), quoted poems or epigraphs still in copyright, long quotations from other books, real living people, real named businesses or institutions portrayed negatively, identifiable real private individuals, and trademarks used in a disparaging way. The whole book was pre-scanned, and these are the only passages containing quotations, verse, italics, song or poem mentions, or capitalised names. For each risk, quote the text, give the chapter, and explain the typical options (paraphrase, invent, request permission, use a public-domain source). If nothing is risky, say so. Note: this is general information, not legal advice.\n\n<passages>${permissionCandidates(p)}</passages>\n\n${FORMAT.findings}`,
+      craft: false,
+    }),
+  },
+  sensitivity: {
+    id: 'sensitivity',
+    label: 'Sensitivity read',
+    blurb: 'How characters of different backgrounds, disabilities, or experiences of violence are portrayed.',
+    needs: 'selection-or-chapter',
+    build: (p, i) => {
+      const x = passage(i, p);
+      return {
+        role: 'developmental',
+        scope: 'local',
+        output: 'findings',
+        maxTokens: 2200,
+        focusText: x.text,
+        user: `Do a thoughtful sensitivity read of ${x.label}: portrayals of ethnicity, culture, disability, mental illness, age, class, sexuality, and survivors of violence or abuse. Flag stereotypes, one-dimensional portrayals, harmful tropes (such as "bury your gays", or mental illness as the villain's explanation) and careless language, with better options that keep the book dark and honest. Don't sanitise the genre: darkness is fine, and cliché and harm are the issue.\n\n<chapter>${x.text}</chapter>\n\n${FORMAT.findings}`,
+        craft: false,
+      };
+    },
+  },
+  contentNotes: {
+    id: 'contentNotes',
+    label: 'Content notes',
+    blurb: 'A draft list of sensitive content, which agents and publishers now often ask for.',
+    build: () => ({
+      role: 'developmental',
+      scope: 'whole',
+      output: 'text',
+      maxTokens: 900,
+      user: 'Draft a concise content-notes list for this book (for example: death of a sibling, drowning, domestic abuse, grief), based on the story bible and chapter summaries. A bullet list only, with an optional one-line note on intensity. Mark anything uncertain with (check).',
+      craft: false,
+    }),
+  },
+  // ================= Finishing =================
+  todayScene: {
+    id: 'todayScene',
+    label: 'Today\'s scene',
+    blurb: 'One small, concrete thing to write today, drawn from your outline.',
+    build: (p) => {
+      const next = p.chapters.find((c) => c.status !== 'Done' && c.status !== 'Revising') ?? p.chapters[p.chapters.length - 1];
+      return {
+        role: 'scene',
+        scope: 'local',
+        output: 'text',
+        maxTokens: 700,
+        user: `Suggest ONE small, doable writing task for today, for ${chapterLabel(p, next.id)} (current words: ${next.text.split(/\s+/).filter(Boolean).length}). Base it on the chapter plan and where the text stops. Format: a bold one-line task ("Write the moment Nora…"), then two or three short bullet prompts to get her started (what she wants, what gets in the way, one sensory detail to include). Under 110 words. Warm and simple.`,
+        craft: false,
+      };
+    },
+  },
+  weeklyPlan: {
+    id: 'weeklyPlan',
+    label: 'This week\'s plan',
+    blurb: 'A gentle plan for the week: three scenes, sized to your pace.',
+    build: (p, i) => ({
+      role: 'scene',
+      scope: 'whole',
+      output: 'text',
+      maxTokens: 900,
+      user: `Make a gentle writing plan for this week: three scenes or tasks to write, in order, based on the outline and where the draft stops.${i.variant ? ` Her recent pace: about ${i.variant} words a day.` : ''} For each: the chapter, one line on what happens, and the key beat. End with one encouraging, specific sentence (no flattery). Under 200 words.${p.chapters.length ? '' : ''}`,
+      craft: false,
+    }),
+  },
+  // ================= Market & publishing =================
+  trends: {
+    id: 'trends',
+    label: 'Market trends',
+    blurb: 'What\'s selling in the genre now, what agents are tired of, and where your book fits. Uses real web search.',
+    build: (_p, i) => ({
+      role: 'research',
+      scope: 'minimal',
+      output: 'text',
+      maxTokens: 1800,
+      search: true,
+      user: `Using current web information, summarise the market for dark mystery and psychological thrillers: what's selling now, what agents and editors say they want or are tired of, and typical debut word counts. Then say where this book fits: ${premiseLine(_p)}. Headings: "What's working in the market", "What's oversaturated", "Where this book fits", "Opportunities". Cite sources. If you can't verify something, say so.${req(i)}`,
+      craft: false,
+    }),
+  },
+  pitchComps: {
+    id: 'pitchComps',
+    label: 'Pitch and comparable titles',
+    blurb: '"X meets Y" pitches and real comparable books from the last few years, found with web search.',
+    build: (p, i) => ({
+      role: 'research',
+      scope: 'whole',
+      output: 'text',
+      maxTokens: 1800,
+      search: true,
+      user: `Find 4-6 REAL comparable titles ("comps") for this book: published in roughly the last 5 years, commercially successful but not mega-bestsellers, and similar in tone, premise or readership. Verify each is real (title, author, year) using search, and explain the specific similarity. Then write three "X meets Y" pitch lines and three taglines. Never invent a book. If unsure, leave it out.\n\nBook: ${premiseLine(p)}${req(i)}`,
+      craft: false,
+    }),
+  },
+  titleLab: {
+    id: 'titleLab',
+    label: 'Title lab',
+    blurb: 'Title ideas that signal the genre, checked against existing books.',
+    build: (p, i) => ({
+      role: 'brainstorm',
+      scope: 'whole',
+      output: 'text',
+      maxTokens: 1500,
+      search: true,
+      user: `Suggest 10 strong titles for this dark psychological mystery, in the style of titles that sell in the genre (evocative, often short, a hint of threat or secrecy). Current working title: "${p.title}". For each: the title, what it signals, and whether a well-known book already uses it (check with search). Mark the top three. Then give one line on the current title's strengths and weaknesses.${req(i)}`,
+      craft: false,
+    }),
+  },
+  coverBrief: {
+    id: 'coverBrief',
+    label: 'Cover brief',
+    blurb: 'A cover-design brief: mood, imagery and genre signals, for a designer or a publisher.',
+    build: (_p, i) => ({
+      role: 'architect',
+      scope: 'whole',
+      output: 'text',
+      maxTokens: 1200,
+      user: `Write a professional cover-design brief: genre signals readers recognise in dark psychological thrillers, mood, colour palette, 2-3 imagery concepts drawn from the book's own objects and places (avoid clichés like a woman walking away in a red coat, unless subverted), typography feel, and what to avoid. Under 350 words.${req(i)}`,
+      craft: false,
+    }),
+  },
+  readerProfile: {
+    id: 'readerProfile',
+    label: 'Who is this book for?',
+    blurb: 'A clear picture of your ideal reader, which shapes the pitch, blurb and comparable titles.',
+    build: (_p, i) => ({
+      role: 'architect',
+      scope: 'whole',
+      output: 'text',
+      maxTokens: 1000,
+      user: `Describe this book's ideal reader: age range, what they read and love, why they pick up a thriller, what they want to feel, where they discover books, and what would make them recommend this one. Then one line on the "reader promise" the cover and blurb must make. Under 300 words.${req(i)}`,
+      craft: false,
+    }),
+  },
+  queryBuilder: {
+    id: 'queryBuilder',
+    label: 'Write my query letter',
+    blurb: 'A professional query letter to literary agents: hook, story, stakes, comps and bio.',
+    build: (p, i) => ({
+      role: 'architect',
+      scope: 'whole',
+      output: 'text',
+      maxTokens: 1800,
+      user: `Write a professional query letter (250-350 words) for this manuscript, following current agent conventions: an opening hook paragraph; two short paragraphs on the protagonist, what she wants, the conflict and the stakes, WITHOUT revealing the ending; a housekeeping line with the title in caps, genre, word count (about ${Math.round(p.chapters.reduce((n, c) => n + c.text.split(/\s+/).filter(Boolean).length, 0) / 1000) || '??'},000 now; target ${Math.round(p.targetWords / 1000)},000) and comps${p.publishing.comps ? ` (${p.publishing.comps})` : ' (placeholders: [COMP 1], [COMP 2])'}; and a short, warm bio${p.publishing.bio ? `: ${p.publishing.bio}` : ' placeholder'}. Plain, confident, specific. No rhetorical questions and no clichés. Use [AGENT NAME] as the greeting placeholder.${req(i)}`,
+      craft: true,
+    }),
+  },
+  queryPanel: {
+    id: 'queryPanel',
+    label: 'Agent panel for my query',
+    blurb: 'Three simulated agents with different tastes critique your query before it goes out.',
+    needs: 'request',
+    placeholder: 'Paste your query letter…',
+    build: (_p, i) => ({
+      role: 'developmental',
+      scope: 'minimal',
+      output: 'findings',
+      maxTokens: 2500,
+      user: `Three literary agents review this query: (1) a commercial-thriller agent, (2) an agent who loves literary suspense, (3) a tough agent who rejects 99% of queries. For each, a finding titled "<agent>: request / pass" with their honest reaction: where they stopped, what hooked them, what's unclear or generic, and whether they'd request pages. Then add findings with specific line edits to fix the biggest problems.\n\nQUERY:\n"""${i.request ?? ''}"""\n\n${FORMAT.findings}`,
+      craft: false,
+    }),
+  },
+  agentMatch: {
+    id: 'agentMatch',
+    label: 'Find agents',
+    blurb: 'Real literary agents who represent dark psychological thrillers, with source links. Always check their current submission guidelines.',
+    build: (p, i) => ({
+      role: 'research',
+      scope: 'minimal',
+      output: 'text',
+      maxTokens: 2200,
+      search: true,
+      user: `Using web search, find 8-10 real literary agents currently open to (or known for) dark psychological thrillers and mysteries, ideally ones who have mentioned wanting books like this: ${premiseLine(p)}. For each: name, agency, what they're looking for (from their wishlist or interviews), how to submit (if found), and a suggested personal first line for the query. Include a source link for each. Only include agents you can verify, and tell the author to check each agency's current guidelines before querying.${req(i)}`,
+      craft: false,
+    }),
+  },
+  contests: {
+    id: 'contests',
+    label: 'Contests, pitch events and conferences',
+    blurb: 'Opportunities for debut crime writers, found with web search.',
+    build: (_p, i) => ({
+      role: 'research',
+      scope: 'minimal',
+      output: 'text',
+      maxTokens: 1800,
+      search: true,
+      user: `Using web search, list current opportunities for an unpublished debut crime or psychological-thriller writer: manuscript contests and prizes for unpublished writers (such as debut crime-writing awards), online pitch events, mentorship programmes, and writing conferences with agent pitch sessions. For each: name, what it is, typical deadlines or season, cost if known, and a link. Mark anything you couldn't confirm is current.${req(i)}`,
+      craft: false,
+    }),
+  },
+  storeListing: {
+    id: 'storeListing',
+    label: 'Self-publishing listing',
+    blurb: 'A store description, categories and keywords, for publishing an e-book yourself.',
+    build: (_p, i) => ({
+      role: 'architect',
+      scope: 'whole',
+      output: 'text',
+      maxTokens: 1500,
+      user: `Prepare a self-publishing store listing: a book description (about 200 words, formatted for online bookstores, hook first, no spoilers), 3 suitable bookstore categories, 7 keyword phrases readers of this genre search for, a short author-bio template, and a one-line tagline for ads.${req(i)}`,
+      craft: true,
+    }),
+  },
+  humanFeedback: {
+    id: 'humanFeedback',
+    label: 'Make sense of reader feedback',
+    blurb: 'Paste comments from human readers. Your editor groups them into themes and suggests which to act on.',
+    needs: 'request',
+    placeholder: 'Paste the comments you received (from beta readers, a writing group, an editor)…',
+    build: (_p, i) => ({
+      role: 'developmental',
+      scope: 'whole',
+      output: 'findings',
+      maxTokens: 2500,
+      user: `Here is feedback the author received from human readers:\n"""${i.request ?? ''}"""\n\nGroup it into themes. For each theme, say how many readers raised it, whether it's a symptom of a deeper issue (readers often identify a problem correctly but suggest the wrong fix), and what to do about it in her story. Separate "act on this" from "matter of taste". Be kind about harsh comments.\n\n${FORMAT.findings}`,
+      craft: false,
+    }),
+  },
+  // ================= Series =================
+  seriesPotential: {
+    id: 'seriesPotential',
+    label: 'Series potential check',
+    blurb: 'Does the book stand alone and still leave room for more? Agents usually want exactly that.',
+    build: (_p, i) => ({
+      role: 'architect',
+      scope: 'whole',
+      output: 'findings',
+      maxTokens: 2200,
+      user: `Agents usually want a debut that stands completely on its own (the central mystery fully resolved) but has series potential. Assess: does the book resolve its main mystery satisfyingly? Which characters, relationships, places and unanswered personal questions could carry a series? Is the protagonist someone readers would follow into new cases, and what would bring her into another mystery? Flag anything that currently feels like an unfinished cliffhanger that could frustrate agents.${req(i)}\n\n${FORMAT.findings}`,
+      craft: false,
+    }),
+  },
+  sequelSeeds: {
+    id: 'sequelSeeds',
+    label: 'Sequel seeds',
+    blurb: 'Threads to quietly plant in this book that could grow into a sequel, without weakening the ending.',
+    category: 'plot',
+    build: (_p, i) => ({
+      role: 'brainstorm',
+      scope: 'whole',
+      output: 'options',
+      maxTokens: 2500,
+      user: `Suggest 3-5 "sequel seeds": small threads she could plant in THIS book (a minor character with a secret, an unexplained object, an unresolved relationship, a hint about the protagonist's past) that enrich this book on their own and could grow into a future mystery, without leaving this book's central mystery unresolved. In "changes", say where to plant it (chapter). In "complications", say what book two could do with it.${req(i)}\n\n${FORMAT.options}`,
+      craft: false,
+    }),
+  },
+  newMystery: {
+    id: 'newMystery',
+    label: 'New mystery from this world',
+    blurb: 'Fresh cases that grow out of your existing characters, places and history.',
+    category: 'plot',
+    build: (_p, i) => ({
+      role: 'brainstorm',
+      scope: 'whole',
+      output: 'options',
+      maxTokens: 3000,
+      user: `Propose 3-4 premises for the NEXT book, growing organically from this book's characters, places, unresolved personal threads and history, in the same genre and tone. Each should have a fresh central mystery (not a repeat of this one), personal stakes for the protagonist, and a reason she's drawn in. Use "idea" for the one-sentence hook. The other fields cover why it works, what carries over, new characters needed, and risks.${req(i)}\n\n${FORMAT.options}`,
+      craft: false,
+    }),
+  },
+  seriesArc: {
+    id: 'seriesArc',
+    label: 'Series arc planner',
+    blurb: 'A larger mystery or relationship that develops across several books.',
+    build: (p, i) => ({
+      role: 'architect',
+      scope: 'whole',
+      output: 'text',
+      maxTokens: 2000,
+      user: `Sketch a series arc for ${p.series.name || 'this series'} (this is book ${p.series.bookNumber}): an overarching question or relationship that develops across three to five books while each book stays a complete mystery. Include: the arc's central question, how the protagonist changes across the series, a one-paragraph outline per book (case of the book plus arc development), and the ending of the series arc. ${p.series.arc ? `Build on her notes: ${p.series.arc}` : ''} Mark everything as a possibility. Under 700 words.${req(i)}`,
+      craft: false,
+    }),
   },
   ask: {
     id: 'ask',

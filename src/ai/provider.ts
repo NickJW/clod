@@ -2,6 +2,9 @@
 // so a different model or company can be added later without touching the UI.
 import { getPref, setPref } from '../storage/db';
 import { anthropicProvider } from './anthropic';
+import { openaiProvider } from './openai';
+import { manualProvider } from './manual';
+import { geminiProvider } from './gemini';
 export { AIError } from './errors';
 
 export interface AIMessage {
@@ -20,6 +23,12 @@ export interface AIRequest {
   creativity: number;
   /** Use the faster, cheaper model (summaries and small jobs). */
   fast?: boolean;
+  /** Let the model use web search (Gemini's Google Search) for real, current facts. */
+  search?: boolean;
+  /** The answer must be JSON (providers that support it enforce valid JSON). */
+  json?: boolean;
+  /** Quality matters more than speed (whole-chapter drafts): wait out a busy model rather than switching to a lighter one. */
+  patient?: boolean;
   signal?: AbortSignal;
   onText?: (fullTextSoFar: string) => void;
 }
@@ -51,26 +60,103 @@ export interface AISettings {
   creativity: number;
 }
 
-export const PROVIDERS: AIProvider[] = [anthropicProvider];
+export const PROVIDERS: AIProvider[] = [geminiProvider, anthropicProvider, openaiProvider, manualProvider];
+
+/** A link that connects the AI editor on another computer (the key travels in the #fragment, which is never sent to any server). */
+export function makeSetupLink(): string {
+  const s = getAISettings();
+  const payload = btoa(JSON.stringify({ p: s.providerId, k: s.apiKey, m: s.model, f: s.fastModel }));
+  return `${location.origin}${location.pathname}#connect=${payload}`;
+}
+
+/** If the page was opened with a setup link, save its settings and tidy the address bar. */
+export function consumeSetupLink(): boolean {
+  const hash = location.hash;
+  if (!/#connect=/.test(hash)) return false;
+  history.replaceState(null, '', location.pathname + location.search);
+  return applySetupLink(hash);
+}
+
+/** Apply a setup link's settings (also used when a link is pasted into the key box). */
+export function applySetupLink(text: string): boolean {
+  const m = text.match(/#connect=([A-Za-z0-9+/=]+)/);
+  if (!m) return false;
+  try {
+    const d = JSON.parse(atob(m[1])) as { p: string; k: string; m?: string; f?: string };
+    if (!d.p || !d.k) return false;
+    saveAISettings({ providerId: d.p, apiKey: d.k, model: d.m ?? '', fastModel: d.f ?? '' });
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 export function getProvider(id: string): AIProvider {
   return PROVIDERS.find((p) => p.id === id) ?? PROVIDERS[0];
 }
 
-const DEFAULTS: AISettings = {
-  providerId: 'anthropic',
-  apiKey: '',
-  model: anthropicProvider.models[0].id,
-  fastModel: 'claude-haiku-4-5-20251001',
-  creativity: 0.7,
-};
-
-export function getAISettings(): AISettings {
-  return { ...DEFAULTS, ...getPref<Partial<AISettings>>('ai', {}) };
+interface ProviderPrefs {
+  apiKey: string;
+  model: string;
+  fastModel: string;
 }
 
-export function saveAISettings(s: Partial<AISettings>): void {
-  setPref('ai', { ...getAISettings(), ...s });
+interface StoredAI {
+  providerId: string;
+  creativity: number;
+  providers: Record<string, ProviderPrefs>;
+}
+
+const PROVIDER_DEFAULTS: Record<string, ProviderPrefs> = {
+  anthropic: { apiKey: '', model: anthropicProvider.models[0].id, fastModel: 'claude-haiku-4-5-20251001' },
+  openai: { apiKey: '', model: '', fastModel: '' },
+  gemini: { apiKey: '', model: 'gemini-flash-latest', fastModel: 'gemini-flash-lite-latest' },
+  // Copy & paste needs no key; a placeholder marks it as "connected".
+  manual: { apiKey: 'copy-and-paste', model: 'chatgpt.com', fastModel: 'chatgpt.com' },
+};
+
+function stored(): StoredAI {
+  const raw = getPref<Record<string, unknown>>('ai', {});
+  // Older versions stored one flat Claude setting: move it into the Claude slot.
+  const providers = (raw.providers as Record<string, ProviderPrefs>) ?? {
+    anthropic: { ...PROVIDER_DEFAULTS.anthropic, ...(raw.apiKey ? { apiKey: raw.apiKey as string } : {}), ...(raw.model ? { model: raw.model as string } : {}) },
+  };
+  return { providerId: (raw.providerId as string) || (raw.apiKey ? 'anthropic' : 'gemini'), creativity: typeof raw.creativity === 'number' ? raw.creativity : 0.7, providers };
+}
+
+/** The active provider's settings, flattened. */
+export function getAISettings(): AISettings {
+  const st = stored();
+  const pp = st.providerId === 'manual' ? PROVIDER_DEFAULTS.manual : { ...PROVIDER_DEFAULTS[st.providerId], ...st.providers[st.providerId] };
+  // Gemini falls back to the default models when none are chosen.
+  const g = st.providerId === 'gemini';
+  return {
+    providerId: st.providerId,
+    creativity: st.creativity,
+    apiKey: pp.apiKey || '',
+    model: pp.model || (g ? PROVIDER_DEFAULTS.gemini.model : ''),
+    fastModel: pp.fastModel || (g ? PROVIDER_DEFAULTS.gemini.fastModel : ''),
+  };
+}
+
+/** Save settings; key/model changes apply to the active provider (or the one named in the patch). */
+export function saveAISettings(patch: Partial<AISettings>): void {
+  const st = stored();
+  const providerId = patch.providerId ?? st.providerId;
+  const cur = { ...PROVIDER_DEFAULTS[providerId], ...st.providers[providerId] };
+  const next: StoredAI = {
+    providerId,
+    creativity: patch.creativity ?? st.creativity,
+    providers: {
+      ...st.providers,
+      [providerId]: {
+        apiKey: patch.apiKey ?? cur.apiKey,
+        model: patch.model ?? cur.model,
+        fastModel: patch.fastModel ?? cur.fastModel,
+      },
+    },
+  };
+  setPref('ai', next);
 }
 
 export interface UsageTotals {
