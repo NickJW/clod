@@ -6,7 +6,7 @@ import { newChapter, uid } from '../story/factory';
 import { chapterNumber, characterName, countWords, manuscriptWords, readingTime, saveChapterVersion, timeAgo, escapeRe, todayWords } from '../story/reference';
 import { registerEditor, setPendingJump, takePendingJump } from '../editor/bridge';
 import { maybeSummarize, openEditor, runQuiet } from '../ai/session';
-import { joinSpoken, useSpeech } from '../editor/speech';
+import { joinSpoken, setVoiceTarget, useSpeech, useVoiceStatus } from '../editor/speech';
 import { readAloudSupported, useReadAloud } from '../editor/readAloud';
 import { checkProse } from '../editor/proseCheck';
 import { diffWords } from '../editor/diff';
@@ -110,6 +110,25 @@ function ChapterList({ p, current }: { p: Project; current: string }) {
   );
 }
 
+/** Where Talk will put her words (while she speaks) and the words it just added (glowing for a few seconds). */
+function TalkMarker({ el, mark, state }: { el: HTMLTextAreaElement; mark: { pos: number; from?: number; to?: number }; state: 'listening' | 'writing' | 'done' }) {
+  const line = parseFloat(getComputedStyle(el).lineHeight) || 28;
+  const len = el.value.length;
+  const top = (i: number) => caretTop(el, Math.min(i, len)) - line;
+  const hasNew = mark.from !== undefined && mark.to !== undefined && mark.to > mark.from;
+  const bandTop = hasNew ? top(mark.from! + (el.value[mark.from!] === '\n' ? 1 : 0)) : top(mark.pos);
+  const bandH = hasNew ? Math.max(line, top(mark.to!) - bandTop + line) : line;
+  const flagTop = state === 'done' && hasNew ? bandTop : top(mark.pos);
+  return (
+    <>
+      <div className={`talk-band${hasNew ? ' added' : ''}${state === 'done' ? ' fade' : ''}`} style={{ top: bandTop, height: bandH }} aria-hidden />
+      <div className={`talk-flag ${state}`} style={{ top: flagTop - 30 }}>
+        {state === 'listening' ? '🎙 Your words will appear here' : state === 'writing' ? '✍ Writing it down here…' : '✓ Added here'}
+      </div>
+    </>
+  );
+}
+
 /** Pixel offset of a character index inside a textarea (via an invisible mirror), for scrolling to search results. */
 function caretTop(el: HTMLTextAreaElement, index: number): number {
   const m = document.createElement('div');
@@ -119,7 +138,7 @@ function caretTop(el: HTMLTextAreaElement, index: number): number {
   m.style.wordWrap = 'break-word';
   m.style.position = 'absolute';
   m.style.visibility = 'hidden';
-  m.textContent = el.value.slice(0, index);
+  m.textContent = el.value.slice(0, index) + '\u200b'; // so a trailing new line still counts as a line
   document.body.appendChild(m);
   const h = m.offsetHeight;
   m.remove();
@@ -205,9 +224,16 @@ function ChapterEditor({ p, ch, onRead }: { p: Project; ch: Chapter; onRead: () 
     timer.current = setTimeout(() => commit(v), 400);
   };
 
-  const insertAt = (start: number, end: number, value: string) => {
+  const insertAt = (start: number, end: number, value: string, quiet = false) => {
     const el = ta.current;
     if (!el) return;
+    // Voice text on a touch screen: don't focus (that would pop up the on-screen keyboard over the page).
+    if (quiet && matchMedia('(pointer: coarse)').matches) {
+      const next = el.value.slice(0, start) + value + el.value.slice(end);
+      setText(next);
+      commit(next);
+      return;
+    }
     el.focus();
     el.setSelectionRange(start, end);
     // execCommand keeps the browser's own Undo (Ctrl+Z) working after AI edits.
@@ -254,13 +280,58 @@ function ChapterEditor({ p, ch, onRead }: { p: Project; ch: Chapter; onRead: () 
     if (Math.abs(top - (window.scrollY + window.innerHeight / 2)) > window.innerHeight / 3) window.scrollTo({ top: top - window.innerHeight / 2.5, behavior: 'smooth' });
   });
 
+  // ---- Talk: the words go where she last put the cursor in this chapter, or at the end.
+  // A marker shows the spot while she speaks, and the new words glow once they arrive.
+  const caret = useRef<number | null>(null);
+  const talkAt = useRef(0);
+  const [talkMark, setTalkMark] = useState<{ pos: number; from?: number; to?: number; atEnd: boolean } | null>(null);
+  const markTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const voice = useVoiceStatus();
+  const scrollToPos = (pos: number) => {
+    const el = ta.current;
+    if (!el) return;
+    const top = el.getBoundingClientRect().top + window.scrollY + caretTop(el, pos);
+    if (top < window.scrollY + 120 || top > window.scrollY + window.innerHeight - 160) window.scrollTo({ top: top - window.innerHeight / 2.5, behavior: 'smooth' });
+  };
   const speech = useSpeech((phrase) => {
     const el = ta.current;
     if (!el) return;
-    const s = el.selectionEnd;
+    const s = Math.min(talkAt.current, el.value.length);
     const before = el.value.slice(0, s);
-    insertAt(s, s, joinSpoken(before, phrase).slice(before.length));
+    let added = joinSpoken(before, phrase).slice(before.length);
+    // Leave a space before any words that follow.
+    if (/^[\p{L}\p{N}“"(]/u.test(el.value.slice(s, s + 1)) && !/\s$/.test(added)) added += ' ';
+    insertAt(s, s, added, true);
+    talkAt.current = s + added.length;
+    caret.current = talkAt.current;
+    setTalkMark((m) => ({ pos: talkAt.current, from: m?.from !== undefined && m.to === s ? m.from : s, to: talkAt.current, atEnd: m?.atEnd ?? false }));
+    requestAnimationFrame(() => scrollToPos(talkAt.current));
+    const words = countWords(added);
+    toast(`Added ${words} word${words === 1 ? '' : 's'} to Chapter ${no}. They're highlighted on the page.`);
   });
+  const startTalk = (atEnd = false) => {
+    const el = ta.current;
+    if (!el) return;
+    if (markTimer.current) clearTimeout(markTimer.current);
+    const end = el.value.length;
+    let pos = atEnd || caret.current === null ? end : Math.min(caret.current, end);
+    // Never split a word: move to the end of the word the cursor is in.
+    while (pos < end && /[\p{L}\p{N}'’]/u.test(el.value[pos]) && pos > 0 && /[\p{L}\p{N}'’]/u.test(el.value[pos - 1])) pos++;
+    talkAt.current = pos;
+    setTalkMark({ pos, atEnd: pos >= end });
+    setVoiceTarget(`Chapter ${no}`);
+    requestAnimationFrame(() => scrollToPos(pos));
+    if (!speech.listening) speech.start();
+  };
+  const talking = speech.listening || voice.state === 'transcribing';
+  // Keep the highlight for a few seconds after she finishes, then tidy it away.
+  useEffect(() => {
+    if (talking || !talkMark) return;
+    markTimer.current = setTimeout(() => setTalkMark(null), talkMark.to !== undefined ? 7000 : 0);
+    return () => {
+      if (markTimer.current) clearTimeout(markTimer.current);
+    };
+  }, [talking, talkMark]);
 
   const toggleItalic = () => {
     const el = ta.current;
@@ -396,7 +467,7 @@ function ChapterEditor({ p, ch, onRead }: { p: Project; ch: Chapter; onRead: () 
               {reader.state !== 'idle' ? '■ Stop' : '▶ Listen'}
             </button>
           )}
-          <button className={`btn ghost small${speech.listening ? ' on' : ''}`} onClick={speech.toggle} title='Dictate. Say "full stop", "comma" or "new paragraph" for punctuation.'>
+          <button className={`btn ghost small${speech.listening ? ' on' : ''}`} onClick={() => (speech.listening ? speech.stop() : startTalk())} title='Dictate: your words go where your cursor is (or at the end). Say "full stop", "comma" or "new paragraph" for punctuation.'>
             <Icon name="mic" size={16} /> {speech.listening ? 'Stop' : 'Talk'}
           </button>
           <button className="btn ghost small" onClick={() => setState({ focusMode: true })} title="Hide everything except your page">
@@ -419,10 +490,18 @@ function ChapterEditor({ p, ch, onRead }: { p: Project; ch: Chapter; onRead: () 
         </div>
       )}
       {find && <FindBar p={p} chapterId={ch.id} text={text} onSelect={select} onReplaceAll={(v) => (saveChapterVersion(ch.id, 'Before replace all'), setText(v), commit(v))} onReplaceOne={insertAt} onClose={() => setFind(false)} />}
-      {speech.listening && (
-        <div className="findbar">
-          <span className="pill accent">Listening…</span>
-          <span className="small muted">{speech.interim || 'Speak naturally. Say "full stop", "comma" or "new paragraph".'}</span>
+      {talking && talkMark && (
+        <div className="findbar talk-bar">
+          <span className="pill accent">{speech.listening ? 'Listening…' : 'Writing it down…'}</span>
+          <span className="small">
+            Your words go into <b>Chapter {no}</b>, {talkMark.atEnd ? <b>at the end</b> : <b>where your cursor was</b>} (marked on the page).
+          </span>
+          {!talkMark.atEnd && speech.listening && (
+            <button className="btn small" onClick={() => startTalk(true)}>
+              Put them at the end instead
+            </button>
+          )}
+          {speech.interim && <span className="small muted">{speech.interim}</span>}
         </div>
       )}
       {speech.error && <div className="findbar" style={{ color: 'var(--danger)' }}>{speech.error}</div>}
@@ -450,6 +529,8 @@ function ChapterEditor({ p, ch, onRead }: { p: Project; ch: Chapter; onRead: () 
           <input className="ch-title" value={ch.title} onChange={(e) => patchItem('chapters', ch.id, { title: e.target.value })} placeholder="Chapter title" aria-label="Chapter title" />
           <Ornament />
           {!focus && !text.trim() && <DraftOffer ch={ch} />}
+          <div className="ms-wrap">
+          {talkMark && ta.current && <TalkMarker el={ta.current} mark={talkMark} state={speech.listening ? 'listening' : voice.state === 'transcribing' ? 'writing' : 'done'} />}
           <textarea
             ref={ta}
             className="manuscript"
@@ -457,6 +538,7 @@ function ChapterEditor({ p, ch, onRead }: { p: Project; ch: Chapter; onRead: () 
             spellCheck
             onChange={(e) => onChange(e.target.value)}
             onBlur={(e) => commit(e.target.value)}
+            onSelect={(e) => (caret.current = e.currentTarget.selectionEnd)}
             onMouseUp={onMouseUp}
             onClick={(e) => e.stopPropagation()}
             onKeyUp={(e) => {
@@ -477,6 +559,7 @@ function ChapterEditor({ p, ch, onRead }: { p: Project; ch: Chapter; onRead: () 
             placeholder={'Begin here. Write it rough. You can polish it later.\n\nIf you\'re not sure how to start, open your editor on the right and choose "Scene" or "Write".'}
             aria-label="Chapter text"
           />
+          </div>
         </div>
       </div>
 

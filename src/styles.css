@@ -813,3 +813,17 @@ body.yarn-full .main { container-type: normal; }
 .voice-spin { width: 14px; height: 14px; border-radius: 50%; border: 2px solid color-mix(in srgb, var(--bg) 35%, transparent); border-top-color: var(--bg); animation: voice-spin 0.8s linear infinite; }
 @keyframes voice-pulse { 50% { opacity: 0.35; transform: scale(0.8); } }
 @keyframes voice-spin { to { transform: rotate(360deg); } }
+
+/* Talk: where the words go */
+.ms-wrap { position: relative; }
+.talk-band { position: absolute; left: -12px; right: -12px; border-radius: 6px; pointer-events: none; background: color-mix(in srgb, var(--accent) 10%, transparent); border-left: 3px solid var(--accent); transition: top 0.3s ease, height 0.3s ease, opacity 1.2s ease; }
+.talk-band.added { background: color-mix(in srgb, #f3c64b 38%, transparent); border-left-color: #d9a21b; animation: talk-glow 1.4s ease-out; }
+.talk-band.fade { animation: talk-glow 1.4s ease-out, talk-fade 7s ease-in forwards; }
+.talk-flag { position: absolute; right: 0; z-index: 2; pointer-events: none; font-size: 0.8rem; font-weight: 600; padding: 4px 10px; border-radius: 99px; background: var(--accent); color: #fff; box-shadow: 0 4px 12px rgba(0,0,0,.18); white-space: nowrap; transition: top 0.3s ease; animation: pip-pop 0.25s ease-out; }
+.talk-flag.listening { animation: pip-pop 0.25s ease-out, talk-bob 1.6s ease-in-out 0.25s infinite; }
+.talk-flag.done { background: #2f7d4f; animation: pip-pop 0.25s ease-out, talk-fade 7s ease-in forwards; }
+.voice-target { font-weight: 600; opacity: 0.9; }
+@keyframes talk-glow { 0% { box-shadow: 0 0 0 6px color-mix(in srgb, #f3c64b 55%, transparent); } 100% { box-shadow: 0 0 0 0 transparent; } }
+@keyframes talk-fade { 0%, 70% { opacity: 1; } 100% { opacity: 0; } }
+@keyframes talk-bob { 50% { transform: translateY(-3px); } }
+@media (prefers-reduced-motion: reduce) { .talk-flag, .talk-band { animation: none !important; } }

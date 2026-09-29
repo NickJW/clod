@@ -35,7 +35,7 @@ export const isApple =
 export const useRecorder = recorderSupported && (isApple || !Ctor);
 
 // ---------- A shared status line ("Recording…", "Writing down what you said…") ----------
-export type VoiceState = { state: 'idle' | 'recording' | 'transcribing'; since: number };
+export type VoiceState = { state: 'idle' | 'recording' | 'transcribing'; since: number; target?: string };
 let voice: VoiceState = { state: 'idle', since: 0 };
 const voiceListeners = new Set<() => void>();
 function setVoice(v: VoiceState) {
@@ -47,6 +47,11 @@ export function useVoiceStatus(): VoiceState {
     (l) => (voiceListeners.add(l), () => voiceListeners.delete(l)),
     () => voice,
   );
+}
+let voiceTarget = '';
+/** Where the words will go (e.g. "Chapter 3"), shown on the status pill. Set just before starting. */
+export function setVoiceTarget(t: string) {
+  voiceTarget = t;
 }
 let stopActive: (() => void) | null = null;
 /** Stop whichever Talk button is recording (used by the status pill). */
@@ -74,7 +79,7 @@ export function useSpeech(onFinal: (text: string) => void) {
   async function startRec() {
     setError('');
     setListening(true);
-    setVoice({ state: 'recording', since: Date.now() });
+    setVoice({ state: 'recording', since: Date.now(), target: voiceTarget });
     stopActive = () => void stopRec();
     try {
       recording.current = await startRecording();
@@ -82,6 +87,7 @@ export function useSpeech(onFinal: (text: string) => void) {
     } catch (e) {
       recording.current = null;
       setListening(false);
+      voiceTarget = '';
       setVoice({ state: 'idle', since: 0 });
       const name = (e as Error).name;
       setError(
@@ -101,7 +107,7 @@ export function useSpeech(onFinal: (text: string) => void) {
     const r = recording.current;
     recording.current = null;
     if (!r) return setVoice({ state: 'idle', since: 0 });
-    setVoice({ state: 'transcribing', since: Date.now() });
+    setVoice({ state: 'transcribing', since: Date.now(), target: voice.target });
     try {
       const audio = await r.stop();
       if (audio.size < 16000) return; // under half a second: nothing to write down
@@ -112,6 +118,7 @@ export function useSpeech(onFinal: (text: string) => void) {
       const m = (e as Error).message;
       setError(m === 'no-key' ? 'Voice typing needs the AI editor connected first (Settings → AI).' : m === 'quota' ? 'Voice typing has reached today\'s free limit. Please type for now, or try again tomorrow.' : 'Couldn\'t write down what you said just now. Please check the internet connection and try again.');
     } finally {
+      voiceTarget = '';
       setVoice({ state: 'idle', since: 0 });
     }
   }

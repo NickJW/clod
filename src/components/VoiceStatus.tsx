@@ -17,13 +17,14 @@ export function VoiceStatus() {
       {v.state === 'recording' ? (
         <>
           <span className="voice-dot" /> Recording {Math.floor(secs / 60)}:{String(secs % 60).padStart(2, '0')}
+          {v.target && <span className="voice-target">→ {v.target}</span>}
           <button className="btn small" onClick={stopVoice}>
             Done
           </button>
         </>
       ) : (
         <>
-          <span className="voice-spin" /> Writing down what you said…
+          <span className="voice-spin" /> Writing down what you said{v.target ? ` into ${v.target}` : ''}…
         </>
       )}
     </div>
