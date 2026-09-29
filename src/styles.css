@@ -827,3 +827,4 @@ body.yarn-full .main { container-type: normal; }
 @keyframes talk-fade { 0%, 70% { opacity: 1; } 100% { opacity: 0; } }
 @keyframes talk-bob { 50% { transform: translateY(-3px); } }
 @media (prefers-reduced-motion: reduce) { .talk-flag, .talk-band { animation: none !important; } }
+.home-note { position: sticky; top: 0; z-index: 40; }

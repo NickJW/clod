@@ -6,6 +6,7 @@ import { Celebrate } from './components/Celebrate';
 import { DriveBanner } from './components/DrivePanel';
 import { Helper } from './components/Helper';
 import { VoiceStatus } from './components/VoiceStatus';
+import { HomeScreenNote } from './components/HomeScreenNote';
 import { useDrive } from './services/drive';
 import { ConfirmHost, Icon, Toasts } from './components/ui';
 import { Onboarding } from './pages/Onboarding';
@@ -58,6 +59,7 @@ export default function App() {
   if (!project)
     return (
       <>
+        <HomeScreenNote />
         <Onboarding />
         <VoiceStatus />
         <Toasts />
@@ -135,6 +137,7 @@ export default function App() {
             </button>
           </div>
         )}
+        {!focus && <HomeScreenNote />}
         {!focus && <DriveBanner />}
         {!focus && <GuideBanner />}
         {page === 'home' && <Home key="home" />}
