@@ -22,8 +22,9 @@ At runtime the game asks for a new enemy ("a level-6 skirmisher for the swamp bi
 4. **Gives it verbs**: attacks and movement come from the parts it was built from (a cannon-shaped
    part shoots, a long blade part sweeps, many legs let it leap), shaped by its combat role and
    balanced against a threat budget.
-5. **Critiques it**: a final art-direction pass checks material, palette, shape language, mass
-   hierarchy, silhouette and that every part has a purpose. Slapped-together results are
+5. **Critiques and tests it**: a final art-direction pass checks material, palette, shape language, mass
+   hierarchy, silhouette and that every part has a purpose. Then a fast simulated test run
+   checks movement, attacks, VFX and SFX (§13.2). Slapped-together or broken results are
    repaired or rejected.
 6. **Caches it as a species** so later spawns of the same species are cheap pooled instances
    with small individual variations. At scale, parts render as shared instanced meshes, so new
@@ -688,6 +689,29 @@ the generic LegIK path also works for bipeds.
    (metal → sparks, wood → splinters, bone → dust; from the material family).
 7. **Decals and wear**: an optional dirt/grime overlay in the shader to unify parts.
 
+### 12.1 Sound and VFX are kitbashed too (so they can be checked)
+**Sound**: build each cue from layers instead of picking one clip per enemy:
+```
+cue = body layer (material family: metal clank, wood knock, bone rattle, flesh thud, stone grind)
+    + action layer (whoosh, stab, slam, bite, fire, charge-up hum)
+    + size layer (pitch and low-end set by mass: big = lower, slower, longer tail)
+    + element layer (fire crackle, frost crack, poison bubble, void hum), from the theme
+```
+- Footsteps come from the **material of the foot part** (sword legs clink, human feet slap,
+  wheels rumble), and their timing comes from the IK step events, so they always match.
+- Every ability has 3 cue slots: **windup** (anticipation, the most important for
+  readability), **impact**, **recovery**. Missing a windup cue is a QA failure (§13.2).
+- Idle "voice": a short loop from the core's material family plus a vocal layer chosen by
+  theme, pitched by size. Use a small number of variations with random pitch ±5%.
+- Mix rules: per-species voice limit (e.g. max 3 simultaneous sources), mixer groups
+  (Enemy/Footsteps, Enemy/Attacks, Enemy/Voice), and loudness pre-normalised at import.
+
+**VFX**: chosen the same way: `FX_*` prefabs tagged by **delivery** (trail, muzzle, impact,
+ground AoE, beam, aura) and **element**, then:
+- spawned at the part's socket, scaled from the part's bounds (not a fixed size)
+- tinted from the palette accent through a property block
+- given a particle budget per size class, and pooled
+
 ---
 
 ## 13. Validation (generate → test → repair or re-roll)
@@ -741,6 +765,77 @@ the creature is repaired (the worst-scoring part is swapped) or re-rolled.
 
 No automatic check can promise "exciting". What this setup does is reliably reject the
 "slapped together" results and keep improving the rules from human and AI feedback.
+
+### 13.2 Proving Ground: automatic QA for movement, attacks, VFX and SFX
+The Critic (§13.1) checks a still creature. The **Proving Ground** checks it *in action*. It is
+fast, cheap and deterministic: numbers measured from a short simulation, no AI or humans
+needed per creature.
+
+**How it runs**
+- An empty arena scene with flat ground, a ramp, steps, a narrow gap, a wall and a scripted
+  dummy player (strafes, approaches, retreats, stands still). No rendering needed except for
+  the few checks marked 📷.
+- Each species runs a fixed **8-second script** at `Time.timeScale = 4–10` with a fixed
+  timestep, so it takes about **1–2 s per species** of real time. Batch it in the editor
+  (hundreds per hour), or run one quick **1-second dry run** during the runtime bake for new
+  species, using the movement and ability timelines only (no physics scene needed).
+- Results are a pass/fail list plus numbers, stored with the genome. Failures go back to the
+  repair/re-roll loop, like the validator.
+
+**Movement checks**
+| Check | Measured as | Fails when |
+|---|---|---|
+| Foot sliding | foot movement while it is planted | > 2 cm per step on average |
+| Ground penetration / floating | foot and body distance to the ground | > 5 cm under, or feet in the air when they should be planted |
+| Jitter | body acceleration and jerk spikes, rotation snaps | spikes above a threshold (usually IK flipping or springs exploding) |
+| Self-intersection | capsule overlaps between parts during walk and attacks | parts passing through each other |
+| Stuck / nav | progress towards the target on the course | stuck > 1 s, falls off the NavMesh, can't climb the steps it should |
+| Gait sanity | step frequency vs speed, leg phase pattern | legs stepping in sync when they shouldn't, wild stepping at low speed |
+| Turn and speed | measured vs expected from the body (§11) | a 10-ton creature turning like a cat |
+| Stability | centre of mass inside the support polygon | tips over while walking |
+
+**Attack checks**
+| Check | Measured as | Fails when |
+|---|---|---|
+| Hit/visual sync | the hitbox's active frames vs the speed peak of the attacking part | hitbox active while the part is still winding up or already recovering |
+| Reach honesty | where hits land vs where the part tip actually is | hits from beyond the visible part |
+| Telegraph | windup time, glow, cue all present before damage | a big hit with < 0.35 s windup or no cue |
+| Can it hit at all | hit rate against the standing and strafing dummy | never hits (useless) or always hits strafing targets (unfair) |
+| Whiff in range | attacks started vs attacks that could connect | attacks constantly at nothing |
+| Recovery window | time vulnerable after each attack | no opening for the player |
+| Balance | measured DPS and time-to-kill vs the threat budget | outside ±15% |
+| Projectiles | origin at the muzzle socket, clear line of fire | projectiles spawning inside its own body or wall |
+
+**VFX checks**
+| Check | Fails when |
+|---|---|
+| Anchored | effect spawns more than 10 cm from its socket or doesn't follow a moving part |
+| Scale | effect bounds are less than 0.5× or more than 3× the part bounds |
+| Budget | live particle count or estimated overdraw over the size-class budget |
+| Colour | dominant colour is far from the palette accent (Oklab distance) |
+| Lifetime and pooling | effect still alive 5 s after the ability ends, or not returned to the pool |
+| 📷 Readability | in a low-res capture from the gameplay camera, the telegraph is not visible or the effect covers the whole creature |
+
+**SFX checks**
+| Check | Fails when |
+|---|---|
+| Coverage | any ability is missing a windup or impact cue; footsteps missing on a legged creature |
+| Sync | impact sound more than 50 ms from the hit event; footstep more than 50 ms from the foot plant |
+| Material match | the cue's material layer doesn't match the part that makes the sound |
+| Loudness | cue loudness outside the target range for its mixer group |
+| Spam | more than N sources at once from one creature, or the same clip repeating 3+ times in a row without variation |
+| Size match | cue pitch/weight doesn't fit the size class |
+
+**Cost and reliability**
+- All checks are plain numbers from deterministic runs, so the same seed always gives the
+  same result. They are reliable enough to block a creature automatically.
+- The costly part, a visual and motion judgement, is done **only on a small sample**: the
+  Gallery records a 3-second clip or a contact sheet of frames for ~5% of species (and every
+  species that just barely passes). Your Unity Claude reviews those, names what feels off
+  ("legs look weightless", "windup too subtle"), and the answer becomes a **new threshold or a
+  new check**, so the cheap checks keep getting better.
+- In practice: the numbers catch the broken ones, a sampled AI or human review catches the
+  "technically fine but feels wrong" ones, and those lessons become new numbers.
 
 ---
 
@@ -844,8 +939,11 @@ checkpoint after each phase and write any design changes in `KITBASH_DECISIONS.m
 **Phase 5: Abilities**
 - Ability atoms, the runner, telegraph posing, hitboxes from part sockets, VFX hookup and
   integration with the game's damage system.
+- Layered SFX and VFX selection (§12.1); the Proving Ground arena and its checks (§13.2).
 - ✅ Every generated enemy has ≥ 2 working attacks that come from its parts, and every big hit
   is telegraphed.
+- ✅ 200 seeds through the Proving Ground in under 10 minutes; ≥ 90% pass on the first try and
+  every failure names the failing check.
 
 **Phase 6: Concept layer**
 - Themes, twists, naming, threat budget, coherence and validation, re-roll and repair.
