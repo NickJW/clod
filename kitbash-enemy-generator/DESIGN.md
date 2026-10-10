@@ -48,6 +48,16 @@ At runtime the game asks for a new enemy ("a level-6 skirmisher for the swamp bi
 - **Deterministic**: the same seed and the same part library always give the same enemy, so
   enemies can be saved, shared, recorded in a bestiary and reproduced as bugs.
 
+### No AI models anywhere in the game
+- The shipped game uses **no LLM, no ML model and no network calls**. Generation is seeded
+  randomness + rules + measured checks: plain C#, a few milliseconds per species, free to run
+  millions of times, and it works offline.
+- "AI" elsewhere in this doc means ordinary **game AI** (utility scoring for enemy decisions),
+  which is just code.
+- The only places a language model *may* be used are **optional development-time tools** (the
+  vision critic in §13.1 and the sampled clip review in §13.2). Both can be switched off or
+  replaced by a human pressing thumbs up/down in the Gallery. Nothing depends on them.
+
 ### Non-goals (v1)
 - Mesh deformation or blending between parts (we place rigid parts; no CSG or remeshing).
 - Learned or ML generation. Everything is rules plus weighted randomness plus validation.
