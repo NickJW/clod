@@ -11,8 +11,9 @@
 
 At runtime the game asks for a new enemy ("a level-6 skirmisher for the swamp biome"). The system:
 
-1. **Designs a concept**: body plan + combat role + theme + one twist, written as a seeded
-   `EnemyGenome` (pure data).
+1. **Designs a concept with a purpose**: a one-line pitch (how it hunts, how the player beats
+   it), then the anatomy that pitch needs, chosen from ~40 body plans plus a body grammar that
+   invents new ones. Recorded as a seeded `EnemyGenome` (pure data).
 2. **Kitbashes a body**: builds a procedural skeleton for that body plan, then fills every slot
    with *any* mesh from the Synty library whose **shape** fits. Human arms become spider legs, a
    barrel becomes a torso, a row of swords becomes a spine, a lantern becomes an eye.
@@ -21,8 +22,12 @@ At runtime the game asks for a new enemy ("a level-6 skirmisher for the swamp bi
 4. **Gives it verbs**: attacks and movement come from the parts it was built from (a cannon-shaped
    part shoots, a long blade part sweeps, many legs let it leap), shaped by its combat role and
    balanced against a threat budget.
-5. **Caches it as a species** so later spawns of the same species are cheap pooled instances
-   with small individual variations.
+5. **Critiques it**: a final art-direction pass checks material, palette, shape language, mass
+   hierarchy, silhouette and that every part has a purpose. Slapped-together results are
+   repaired or rejected.
+6. **Caches it as a species** so later spawns of the same species are cheap pooled instances
+   with small individual variations. At scale, parts render as shared instanced meshes, so new
+   species cost no extra memory or draw calls (§14).
 
 ---
 
@@ -256,23 +261,92 @@ public struct SlotTemplate {
 }
 ```
 
-### 5.1 Starter set (aim for ~12; each one is mostly data)
-| BodyPlan | Locomotion | Kitbash example |
-|---|---|---|
-| **Biped** | LegIK, 2 legs, upright spine | knight torso, barrel chest, sword forearms |
-| **Quadruped** | LegIK, trot/gallop | wagon-cart body, four human legs, skull head |
-| **Arachnid** (6–10 legs) | LegIK, wave/tripod gait | cauldron thorax, 8 human arms as legs |
-| **Centipede / Serpent** | segment chain follows the head | 12 shields as segments, sword ribs |
-| **Floater / Eye** | hover with bob and tilt | lantern core, orbiting books, tentacle chains |
-| **Construct / Orbiter** | core hovers, parts orbit on springs | crystal core, ring of floating swords and rocks |
-| **Wheeled / Tracked** | wheel/track sim on raycasts | mine-cart body, cannon head, spoked wheel |
-| **Rooted / Turret** | none (rotates), may burrow or relocate | tree stump, cannon, tentacle arms |
-| **Radial / Tentacle** | pulls itself with 3–8 tentacles | upturned bell as body, rope/chain tentacles |
-| **Flyer** | wing flap oscillator + banking | crow head, sail/plate wings, spear tail |
-| **Swarm** | many tiny boids sharing one brain | 20 floating teeth, coins, skulls |
-| **Colossus** (boss) | slow LegIK with weak points | building chunk body, tower legs, catapult arm |
+### 5.1 Body plans are built from a grammar, not picked from a fixed list
+A fixed list of templates runs out quickly. Instead, a body plan is **composed from topology
+primitives**, and named plans are just saved, tuned compositions of them:
 
-### 5.2 Hybrids
+| Primitive | What it adds | Parameters |
+|---|---|---|
+| `Core` | a mass that other parts hang from | size, count (1 = one body, 2–3 = thorax/abdomen chain) |
+| `Chain` | a jointed line: spine, neck, tail, tentacle, worm body | links, stiffness, taper, follow mode |
+| `LimbPair` / `LimbRing` | legs/arms, mirrored or radial | count, segments (2–5), knee direction, foot type |
+| `Stack` | parts piled vertically (totem, tower) | layers, wobble |
+| `Orbit` | parts floating around a point | rings, count, radius, formation set |
+| `Appendage` | a single special limb (claw arm, stinger, cannon mount) | which socket, size class |
+| `Shell` | a cover over a core (carapace, hood, house, barrel) | coverage, can open/close |
+| `Hang` | a suspension link: strings, chains, a rope from above | anchor (crossbar/ceiling/flyer), length |
+| `Host` | another full body plan used as a mount or a parasite's host | rider plan, attach socket |
+
+A **body grammar** (weighted production rules with size and count limits) expands a start
+symbol into a primitive graph. For example:
+```
+Creature   → Core Locomotor Head? Appendage{0..2} Ornament*
+Locomotor  → LimbPair{1..5} | LimbRing{3..8} | Chain(ground) | Orbit | Wheel{1..6} | Hover | Hang | Stack(hop)
+Head       → Core(small) | Chain(neck) Core(small) | Head{2..5}(hydra) | none(face on core)
+```
+Rules carry **conditions** (a `Hang` locomotor requires an anchor; a `Stack` can't have more than
+4 layers in a Small size class) and **weights per role and biome**. Named plans become
+"favourite expansions" with tuned weights, and the grammar can still invent combinations nobody
+listed.
+
+### 5.2 Named starting plans (~40)
+Each one is a data asset over the primitives above. Build them in tiers so that each tier
+reuses the motor modules from §10.
+
+**Tier A: core set (needs LegIK, Chain, Hover, Orbit, Wheel)**
+| Plan | Locomotion | Kitbash example |
+|---|---|---|
+| Biped (plantigrade) | 2-leg IK | knight torso, barrel chest, sword forearms |
+| Digitigrade / Raptor | 2-leg IK, back-bent knees, tail for balance | crate body, scythe legs, spear tail |
+| Quadruped | 4-leg trot/gallop | wagon body, four human legs, skull head |
+| Knuckle-walker | 4 limbs, long front arms | boulder torso, huge gauntlet arms |
+| Arachnid (6–10) | wave/tripod gait | cauldron thorax, 8 human arms as legs |
+| Crab | sideways gait, two big claws | upturned shield shell, anvil claws |
+| Scorpion | 8 legs + overhead stinger chain | coffin body, dagger stinger |
+| Mantis | 4 walking legs + 2 raised scythe arms | lantern head, two sickles |
+| Centipede | many segments, legs on each | 12 shields as segments, sword ribs |
+| Serpent / Worm | segment chain, slither or burrow | pipes and barrels, bucket head |
+| Floater / Eye | hover, bob, tilt | lantern core, orbiting books |
+| Construct / Orbiter | core with orbiting parts | crystal core, ring of swords and rocks |
+| Wheeled | wheel sim | mine-cart body, cannon head |
+| Monowheel / Hoop | one big wheel, rider inside | cartwheel ring, skeleton rider |
+| Rooted / Turret | rotates, may relocate by burrowing | tree stump, cannon, tentacles |
+| Swarm | boids | 20 floating teeth, coins, skulls |
+
+**Tier B: needs one extra motor each**
+| Plan | Extra motor | Kitbash example |
+|---|---|---|
+| Hand-walker | fingers as legs (5-leg wave gait) | giant gauntlet, finger = sword legs |
+| Tripod / Stilt-walker | very long 3-leg IK, slow sway | tiny cabin body on tower legs |
+| Pogo / Hopper | spring jump, one or two legs | barrel on a single huge leg |
+| Roller | rolls into a ball between moves | armadillo of shields |
+| Inchworm | bend-and-extend chain | ladder-like body of planks |
+| Gastropod / Snail | sliding foot + shell, leaves trail | house or chest shell, slime path |
+| Jellyfish | pulse thrust, trailing tentacles | bell or lampshade, chain tentacles |
+| Starfish / Radial walker | radial limbs, spins to turn | cart wheel with 5 arms |
+| Tentacle-puller | tentacle tips anchor and drag the body | bell body, 6 rope tentacles |
+| Flyer (wings) | flap + banking | crow head, sail wings, spear tail |
+| Glider / Manta | slow glide, swoop | big flat plate body, banner fins |
+| Bat / Wing-walker | walks on wing knuckles, then flies | cloak wings, skull head |
+| Ceiling hanger | hangs from a ceiling or a chain, swings | chandelier body, dangling arms |
+| Marionette | hangs from strings off a floating crossbar | doll made of furniture, strings to a beam |
+| Wall-crawler | surface-aligned LegIK on walls/ceilings | flat body, 6 thin legs |
+| Totem / Stack | stack of parts that hops and topples | 4 stacked heads or barrels |
+| Ooze / Amalgam | soft jiggle body with parts embedded | blob of mixed props and limbs |
+
+**Tier C: compound (built from two plans)**
+| Plan | Composition | Kitbash example |
+|---|---|---|
+| Taur | Quadruped + Biped torso | horse-ish legs, knight upper body |
+| Hydra | Core + 2–5 neck chains with heads | five lantern heads on chain necks |
+| Rider / Mounted | Host + small rider with its own brain | goblin on a crab made of shields |
+| Parasite | small creature attached to a host; detaches when hurt | tick on a centipede |
+| Twin / Conjoined | two cores sharing legs, two brains | two barrels, one set of 6 legs |
+| Hive-carrier | any locomotor + spawner shell | snail whose shell spawns swarm units |
+| Colossus (boss) | slow LegIK + climbable weak points | building body, tower legs |
+| Siege engine | Wheeled + catapult/turret appendage | cart, trebuchet arm, skull ammo |
+
+### 5.3 Hybrids
 Allow at most one **graft** per enemy: take a sub-graph from a second body plan (a serpent tail
 on a biped, a turret on an arachnid, wings on a quadruped). One graft keeps things surprising
 while staying readable.
@@ -344,6 +418,41 @@ noveltyBias, excludeSpecies[] }`
   as the "signature" part with the highest rarity score.
 - No more than 2 different atlases per enemy (draw calls, and visual consistency).
 
+### 7.4 Purpose first: every enemy starts as an idea, not a pile of parts
+The order of decisions is what keeps this from being a hodgepodge. Parts come **last**:
+
+```
+Pitch  →  Anatomy  →  Parts  →  Look  →  Critic (§13.1)
+```
+
+1. **Pitch** (one sentence, generated from data): *what it is, how it hunts, what the player
+   must do about it.*
+   Example: "A cautious ambusher that hides as a barrel and snaps shut on anyone who gets
+   close; you beat it by baiting the snap and hitting the exposed core."
+   A pitch is built from: role (§9.4) + twist (§7.2) + a **hunting strategy** (ambush, chase,
+   siege, swarm, guard, lure, harass) + a **counterplay** (what the player exploits: a slow
+   turn, an exposed back, a long recovery, a weak point, fragile legs).
+2. **Anatomy follows the pitch.** Each pitch element turns into anatomy requirements:
+   - "snaps shut" → a `Shell` that opens, plus a `Mouth`/`Blade` inside
+   - "exposed core" → an `Orb` weak point that is only visible during recovery
+   - "slow turn" → a heavy `Core` with long, wide legs (the turn rate comes from the body, §11)
+   - "chases" → long legs or wheels, a light core
+   The body plan and the grammar are chosen to satisfy these requirements, not at random.
+3. **Every part must justify itself.** Each slot in the blueprint stores a `purpose`:
+   `Locomotion`, `Attack(abilityId)`, `Defence`, `Sense` (eyes, antennae), `WeakPoint`,
+   `Signature`, `Connector` or `Ornament`. Rules:
+   - **No orphan parts.** A part without a purpose is removed.
+   - **Ornaments are capped** (default ≤ 25% of visible surface) and must follow the
+     shape language (§13.1).
+   - Every **ability** points to the part that performs it, and every **Attack** part has an
+     ability. If a part looks like a weapon (a big Tube or Blade), it has to *be* one, or it
+     gets swapped out. Players read big weapons as threats, so a fake one is a lie.
+4. **Look** (palette, emissives, wear) is applied to support the pitch: the weak point glows,
+   the threatening part is the focal point, ambushers use muted colours.
+
+This means two enemies built from the same parts can be completely different creatures,
+because the *idea* is different.
+
 ---
 
 ## 8. Body assembly
@@ -388,6 +497,43 @@ head and weapons each come from a different source object.
 Don't use mesh colliders. Generate **capsules per segment** and **one box/sphere per core**, all
 on one kinematic Rigidbody root with child colliders. Mark weak-point colliders with a
 `Hitzone` component (multiplier, armour, which part it belongs to).
+
+### 8.5 Proportion play and uncanny creatures (without breaking anything)
+Uncanny creatures come from **familiar things in the wrong number, place, proportion or timing**:
+human hands as feet, a face on a belly, a neck that is a little too long, four elbows, a body
+that is perfectly still and then snaps. The system supports this on purpose, with guard rails.
+
+**Distort the skeleton, not the meshes.**
+- Proportion knobs live on the *skeleton*: limb length ×0.5–×3, neck length, segment count per
+  limb (2–5 joints), head-to-body ratio, stance width, knee direction, body height.
+- A long limb is made by **adding segments** (three forearms chained with connectors), never by
+  stretching one mesh ×3. Mesh stretch stays within the limits in §8.3, so the low-poly detail
+  density stays consistent and nothing looks smeared.
+- Every derived value is **recomputed after distortion**: IK reach, stride length, step time,
+  body height, centre of mass, support polygon, turn rate, NavMesh agent size, melee reach.
+  Gait and speed are always *computed from* the skeleton, so a creature with 3 m legs simply
+  takes long, slow steps. It can't "break" the animation, because nothing is hand-authored.
+
+**Uncanny levers (pick 1–2 per creature, from the `UncannyBudget`)**
+| Lever | Example |
+|---|---|
+| Wrong count | 4-jointed arms, 3 eyes in a row, 7 legs (deliberately odd) |
+| Wrong placement | hands as feet, a face on the abdomen, mouths on limbs |
+| Wrong proportion | tiny head on a huge body, very long thin neck, oversized hands |
+| Wrong orientation | backward knees on a human-like body, an upside-down head |
+| Wrong motion | head stabilised in space while the body moves (chicken head), stillness then a snap, legs slightly out of phase, too-smooth gliding while the legs walk |
+| Wrong material | a human body part made of wood or metal; flesh parts on a machine |
+
+**Guard rails**
+- `UncannyBudget` by theme and role: 0 for comedic or cute themes, 1–2 for horror, and
+  more only for bosses. Too many levers turn creepy into noise.
+- Keep **one anchor of familiarity**. If the legs are wrong, the torso is normal. Uncanny
+  needs something recognisable to be wrong *against*.
+- Distortions that change readability (attack reach, hitbox size) are shown honestly: a longer
+  arm *does* reach further, and its telegraph scales with it.
+- All distortions go through the validator (§13) and the critic (§13.1). The re-roll knob is
+  the distortion amount, so a failing creature is pulled back towards normal proportions
+  before it is thrown away.
 
 ---
 
@@ -565,30 +711,84 @@ known-good species.
 Write every rejection reason to a ring buffer and show it in the Gallery. This is how the
 generator gets tuned.
 
+### 13.1 Final art-direction pass: the Critic
+The validator (§13) checks that a creature *works*. The Critic checks that it *looks designed*.
+It runs on the finished blueprint, after assembly and look, and scores it. Below a threshold
+the creature is repaired (the worst-scoring part is swapped) or re-rolled.
+
+**Runtime checks (cheap, deterministic, no AI needed)**
+| Check | What it measures | Why it matters |
+|---|---|---|
+| Material family | share of the dominant family (bone/metal/wood/stone/flesh/cloth) | one material story reads as one creature |
+| Palette harmony | colour spread of all visible swatches after palette remap (in Oklab), number of distinct hues | stops rainbow kitbash |
+| Shape language | variance of angularity across parts (round vs angular vs boxy) | one shape language = one design; mixing reads as a pile |
+| Mass hierarchy | volume ratio of the primary, secondary and tertiary masses (target roughly 60/30/10) | classic creature-design rule; flat hierarchies look like a pile |
+| Detail density | triangles per m² of each part after scaling, compared with the creature's median | a ×4-scaled part looks blobby next to a detailed one; this is the biggest kitbash tell |
+| Rhythm | repeated parts are identical or a planned sequence (big → small along a tail) | repetition reads as anatomy; random variety reads as junk |
+| Focal point | exactly one part is clearly biggest/brightest/most unusual | the eye needs somewhere to land |
+| Silhouette | from 3 camera angles: readable outline, at least 2 distinct protrusions, not a blob, not a cloud of bits | players recognise enemies by silhouette first |
+| Visual noise | edge density inside the silhouette mask | too many small parts = noise at gameplay distance |
+| Seams | every joint between different packs or sizes has a connector | hides "glued on" joints |
+| Purpose | no orphan parts; weapon-looking parts have abilities (§7.4) | form matches function |
+
+**Editor/offline checks (slower, used to tune the rules)**
+- **Vision critic**: the Gallery renders a turntable thumbnail of each species, and your Unity
+  Claude (it can take screenshots through MCP) rates it against a short rubric ("Does this read
+  as one creature? What is the focal point? What looks glued on?") and names the part to fix.
+  Its notes are used to tune the Critic's weights and thresholds. It doesn't run at runtime.
+- **Human thumbs up/down** in the Gallery. Ratings are stored with the genome and used to
+  re-weight scoring (§8.2) and to fill the curated seed bank (§18.3).
+
+No automatic check can promise "exciting". What this setup does is reliably reject the
+"slapped together" results and keep improving the rules from human and AI feedback.
+
 ---
 
 ## 14. Runtime performance and spawning
 
-1. **Species bake** (time-sliced coroutine/`Awaitable`, ~2 ms per frame):
-   - Build the GameObject hierarchy: one GameObject per *moving segment*, not per part.
-   - **Merge static parts per segment and per atlas** (`Mesh.CombineMeshes` or the MeshData API
-     on a worker thread with `Mesh.AllocateWritableMeshData`).
-   - Generate LOD1 (fewer ornaments, merged further) and LOD2 (whole body as one mesh, no
-     secondary motion) into a `LODGroup`.
+Two rendering paths. Start with **Path A** (simpler, fine for tens of enemies). Move to
+**Path B** when you need hundreds of enemies or many species at once.
+
+### Path A: GameObjects with merged meshes (v1)
+1. **Species bake** (time-sliced `Awaitable`, ~2 ms per frame):
+   - One GameObject per *moving segment*, not per part.
+   - **Merge static parts per segment and per atlas** using the MeshData API on a worker thread
+     (`Mesh.AllocateWritableMeshData`).
+   - LOD1 (fewer ornaments) and LOD2 (whole body as one mesh, no secondary motion) in a
+     `LODGroup`.
    - Build colliders, the ability runner and the brain; register the skeleton with ProcAnim.
-   - Disable it and store it as a **species template** in a `SpeciesCache` (LRU, e.g. 24
-     species).
-2. **Spawning**: `ObjectPool<EnemyInstance>` per species, pre-warmed with the expected count
-   during loading or quiet moments. Instance variation through property blocks, root scale and
-   an optional ornament toggle. No mesh rebuilds.
-3. **Pre-generation**: the `EnemyDirector` generates the *next* encounter's species in the
-   background while the player fights the current one.
-4. **Memory**: generated meshes are owned by the species and destroyed when it is evicted.
-   Track it in a `KitbashStats` overlay.
-5. **GC**: no LINQ or allocation in Update paths; Native containers for jobs; strings only at
-   bake time.
-6. **Rendering**: SRP Batcher compatible shader; GPU instancing for Swarm members (one mesh
-   each, `Graphics.RenderMeshInstanced` instead of GameObjects for large swarms).
+   - Store as a **species template** in a `SpeciesCache` (LRU, e.g. 24 species).
+2. **Spawning**: `ObjectPool<EnemyInstance>` per species, pre-warmed. Variation through
+   property blocks, root scale and an ornament toggle. No mesh rebuilds.
+
+### Path B: no GameObjects per segment (the scalable path)
+Rigid parts on a procedural skeleton have a special property: **every part is just a shared
+mesh plus a matrix**. Nothing is skinned. So:
+- Render all enemy parts through **`BatchRendererGroup`** (or Entities Graphics if the project
+  uses DOTS). Each source part mesh is registered once. Every frame, the ProcAnim job writes
+  one matrix per visible part straight into the BRG instance buffer.
+- Result: **one instanced draw per unique part mesh per material across all enemies**, no
+  per-species mesh merging, and **memory stays flat no matter how many species exist**, because
+  species share the library's meshes. Generating a new species costs almost nothing to render.
+- Only the brain, hit zones and NavMesh agent need a GameObject (one per enemy), or none at all
+  with an ECS brain.
+- Frustum culling and LOD selection happen in the same Burst job that writes the matrices.
+- Far LOD: switch to **octahedral impostors** baked per species in the background (one quad
+  per enemy), which also suits huge swarms.
+
+### Common to both paths
+- **Physics without per-part bodies**: hit zones are capsules in the blueprint. Attacks use
+  batched `OverlapBoxCommand`/`SpherecastCommand` queries from jobs, and the player's attacks
+  check against a compact list of hit zones. A kinematic root per enemy, or none.
+- **Dismemberment for free**: hurt or "kill" a part by hiding its matrix (Path B) or its child
+  (Path A), and spawn one physics debris copy from a small pool.
+- **Pre-generation**: the `EnemyDirector` builds the *next* encounter's species in the background
+  while the player fights the current one.
+- **Library as a blob**: the part library is baked into one blittable binary (`BlobAsset` or a
+  `NativeArray` set) with pre-built query buckets. Generation never touches managed objects.
+- **No GC in hot paths**: no LINQ or allocation in Update paths; strings only at bake time.
+- **Measure**: the `KitbashStats` overlay shows species count, instance count, draws, part
+  matrices per frame, job times and generated-mesh memory.
 
 ---
 
@@ -627,7 +827,7 @@ checkpoint after each phase and write any design changes in `KITBASH_DECISIONS.m
   with joint sockets; the report shows every affordance populated.
 
 **Phase 2: Assembler + Gallery (static)**
-- `BodyPlan` assets for Biped, Quadruped, Arachnid, Floater and Construct; genome; assembler
+- Grammar primitives (§5.1) and `BodyPlan` assets for Biped, Quadruped, Arachnid, Floater and Construct; genome; assembler
   with scoring and fitting; connectors; simple palette shader; Gallery grid.
 - ✅ 64 random seeds give recognisable bodies, with no floating or penetrating parts in at least
   90% of them; an arachnid with human-arm legs can be produced.
@@ -649,17 +849,29 @@ checkpoint after each phase and write any design changes in `KITBASH_DECISIONS.m
 
 **Phase 6: Concept layer**
 - Themes, twists, naming, threat budget, coherence and validation, re-roll and repair.
-- ✅ 100 seeds: ≥ 95% pass validation within 6 re-rolls; names read naturally.
+- Pitch → anatomy (§7.4), the purpose of each part, proportion knobs and the `UncannyBudget` (§8.5),
+  the Critic (§13.1) and the vision-critic step in the Gallery.
+- ✅ 100 seeds: ≥ 95% pass validation and the Critic within 6 re-rolls; every creature has a pitch
+  and no orphan parts; names read naturally.
 
 **Phase 7: Performance and production**
 - Species cache, pooling, mesh merge, LODs, time-sliced bake, pre-generation, death
-  break-apart, spawn reveal, the remaining body plans (Serpent, Wheeled, Rooted, Tentacle,
-  Flyer, Swarm, Colossus).
+  break-apart, spawn reveal, the rest of Tier A, then Tiers B and C from §5.2 (one new motor
+  module at a time).
+- Path B rendering (BatchRendererGroup) once Path A works, measured against Path A (§14).
 - ✅ The soak test runs clean; no frame over budget while species bake.
 
 **Phase 8: Director**
 - `EnemyDirector`: picks role mixes for encounters, novelty vs familiarity (bring back known
   species so players learn them, introduce one new species per encounter), bestiary saving.
+- Part damage changes behaviour (§19 item 2).
+
+**Phase 9: Variety and bets**
+- MAP-Elites archive and curated seed bank (§18.3); the measured count of filled cells goes into
+  `KITBASH_DECISIONS.md`.
+- Optional: lineage breeding in the Director (§19 item 7).
+- ✅ The archive report lists filled and empty cells; runtime mutations of elites pass the Critic
+  at least 90% of the time.
 
 ---
 
@@ -675,6 +887,85 @@ checkpoint after each phase and write any design changes in `KITBASH_DECISIONS.m
 - **Bad results**: when the Gallery shows a bad enemy, fix the *rule* (score weight, affordance
   threshold, validator), not just that seed.
 - Write every deviation from this spec in `KITBASH_DECISIONS.md` with a one-line reason.
+
+---
+
+## 18. How many meaningfully different enemies?
+
+### 18.1 What counts as "different"
+Raw combinations are meaningless (swapping one bolt makes a "new" enemy). A player sees two
+enemies as different when at least one of these is different:
+1. **Silhouette / topology** (what shape is it?)
+2. **Locomotion** (how does it move?)
+3. **Behaviour** (role and hunting strategy: how does it fight?)
+4. **Signature attack or twist** (what is the trick?)
+Theme and material are a *reskin*: it looks new, but you fight it the same way.
+
+### 18.2 Honest estimate
+| Axis | Distinct values a player notices |
+|---|---|
+| Topology (named plans + grammar inventions + one graft) | ~40 named, roughly 80–120 with grammar and grafts |
+| Locomotion feel | ~18 motor styles, partly tied to topology |
+| Behaviour (role × hunting strategy, valid pairs) | ~30 |
+| Signature attack / twist | ~25 |
+| Theme / material look | ~15 |
+
+Not every combination makes sense, and many feel alike, so most of the raw product is not
+"meaningful". Rough numbers:
+- **Distinct ways to fight** (topology × behaviour × signature, after removing invalid and
+  look-alike combinations): **in the low thousands**, roughly 2,000–5,000.
+- **Visually distinct creatures** (adding theme and proportion/uncanny variation): **tens of
+  thousands**.
+- **Individuals** (parts, colour, scale): effectively unlimited, but these read as variants of
+  the same species, which is what you want for recognisable enemies.
+
+These numbers are estimates. §18.3 shows how to *measure* the real number for your library
+instead of guessing.
+
+### 18.3 Measure and guarantee variety: a quality-diversity archive
+Use **MAP-Elites**, a quality-diversity search, offline in the editor:
+- Pick 3–4 **descriptor axes** that the player perceives: topology class, locomotion class,
+  preferred range, size class, silhouette aspect ratio, number of protrusions.
+- The archive is a grid over those axes. Run the generator on thousands of seeds overnight.
+  Each creature lands in a grid cell. A cell keeps only its **best** creature, scored by the
+  Critic (§13.1) + validator + human ratings.
+- The number of **filled cells** is your real, measured count of meaningfully different
+  enemies. **Empty cells** show what the library or grammar can't make yet ("no fast-moving
+  Large artillery"), which tells you what parts or rules to add.
+- Ship the archive as a **curated seed bank**. At runtime the Director (a) spawns elites
+  directly for guaranteed quality, and (b) **mutates** them (a few genes changed) for novelty
+  that stays close to known-good designs.
+
+---
+
+## 19. What is new here, and the bets we are making
+
+Honest prior art: procedural creature animation (Spore, Rain World), modular creatures from
+pre-made part sets per archetype (No Man's Sky), part-based generation with stats from parts
+(Borderlands weapons), and IK-driven multi-legged walkers are all well established. This design
+doesn't claim a brand-new technique. What's unusual is the **combination**, and a few specific
+ideas:
+
+1. **Any mesh is anatomy (shape affordances).** Other systems use parts *made* to be creature
+   parts. Here every mesh in every pack is classified by shape, so the part library is ~10× larger
+   and the results are surprising by default.
+2. **Parts are verbs.** Abilities come from parts, so **damaging a part changes behaviour**: shoot
+   off the cannon and it can't fire; break two legs and the IK makes it limp and slows it down.
+   Dismemberment becomes a combat system without extra authoring.
+3. **Physics-honest movement.** Speed, stride, turn rate and stability come from the generated
+   body, so the way a creature moves always explains how it's built.
+4. **Purpose-first generation with a Critic.** Pitch → anatomy → parts → look → critique, so
+   creatures have a reason to exist and slapped-together results get rejected.
+5. **Measured variety (MAP-Elites).** You know how many distinct enemies you have and where the
+   gaps are, instead of guessing.
+6. **Zero-cost species (BRG path).** Because nothing is skinned, a new species costs no extra
+   mesh memory and no extra draw calls.
+7. **Lineages (optional, run-based games).** The Director **breeds** new species from the ones
+   that did well against *this* player (inherit parts and genes, mutate the rest). If the player
+   relies on ranged attacks, shields and gap-closers become more common. Players see family
+   resemblances across a run, an evolving ecosystem instead of random spawns.
+
+Treat 6 and 7 as bets: prototype them after the core works, and measure them before committing.
 
 ---
 
