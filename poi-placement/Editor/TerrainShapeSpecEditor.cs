@@ -17,6 +17,9 @@ public class TerrainShapeSpecEditor : Editor
 
         using (new EditorGUI.DisabledScope(spec.terrain == null))
         {
+            if (GUILayout.Button("0. Flatten Whole Terrain (new terrain only)") &&
+                EditorUtility.DisplayDialog("Flatten terrain", $"Set the whole terrain to {spec.flattenHeight} m? Only do this on a terrain made for this POI.", "Flatten", "Cancel"))
+                Flatten(spec);
             if (GUILayout.Button("1. Back Up Terrain")) BackUp(spec);
             using (new EditorGUI.DisabledScope(spec.backup == null))
             {
@@ -31,7 +34,19 @@ public class TerrainShapeSpecEditor : Editor
         if (spec.terrain == null) EditorGUILayout.HelpBox("Assign the Terrain first.", MessageType.Info);
     }
 
-    // ------------------------------------------------------------------ Backup / restore
+    // ------------------------------------------------------------------ Flatten / backup / restore
+
+    public static void Flatten(TerrainShapeSpec spec)
+    {
+        var data = spec.terrain.terrainData;
+        int r = data.heightmapResolution;
+        float v = Mathf.Clamp01((spec.flattenHeight - spec.terrain.transform.position.y) / data.size.y);
+        var h = new float[r, r];
+        for (int z = 0; z < r; z++) for (int x = 0; x < r; x++) h[z, x] = v;
+        Undo.RegisterCompleteObjectUndo(data, "Flatten Terrain");
+        data.SetHeights(0, 0, h);
+        Debug.Log($"[Terrain] Whole terrain set to {spec.flattenHeight} m. Now press Back Up Terrain.");
+    }
 
     public static void BackUp(TerrainShapeSpec spec)
     {
@@ -82,6 +97,7 @@ public class TerrainShapeSpecEditor : Editor
         var heights = spec.backup.GetHeights(x0, z0, w, h); // always start from the untouched copy
         var plateaus = ValidPlateaus(spec);
         var channels = ValidChannels(spec);
+        var ramps = ValidRamps(spec);
 
         for (int z = 0; z < h; z++)
         for (int x = 0; x < w; x++)
@@ -101,14 +117,39 @@ public class TerrainShapeSpecEditor : Editor
             }
             if (bestW > 0f) y = Mathf.Lerp(y, bestTop, Smooth(bestW));
 
-            // Channels carve down and always win over plateaus.
+            // Ramps set an exact slope between their two ends (after plateaus, before channels).
+            foreach (var r in ramps)
+            {
+                var ab = r.b - r.a; float len2 = ab.sqrMagnitude;
+                if (len2 <= 0f) continue;
+                float tr = Vector2.Dot(p - r.a, ab) / len2;
+                if (tr < 0f || tr > 1f) continue;
+                float side = Vector2.Distance(p, r.a + ab * tr);
+                float halfW = r.src.width * 0.5f;
+                if (side > halfW + r.src.sideBlend) continue;
+                float rampY = Mathf.Lerp(r.src.startHeight, r.src.endHeight, tr);
+                float k = side <= halfW ? 0f : Mathf.Clamp01((side - halfW) / Mathf.Max(0.01f, r.src.sideBlend));
+                y = Mathf.Lerp(rampY, y, Smooth(k));
+            }
+
+            // Channels carve down and always win over plateaus and ramps.
             foreach (var ch in channels)
             {
-                float d = DistanceToPolyline(p, ch.pts);
-                float half = ch.src.bedWidth * 0.5f;
-                if (d > half + ch.src.bankWidth) continue;
-                float k = d <= half ? 0f : Mathf.Clamp01((d - half) / Mathf.Max(0.01f, ch.src.bankWidth));
-                float carved = Mathf.Lerp(ch.src.bedHeight, y, Smooth(k));
+                float d = DistanceToPolyline(p, ch.pts, out int seg, out float tt);
+                ChannelWidths(ch, seg, tt, out float bedHalf, out float lavaHalf, out float topHalf);
+                if (d > topHalf) continue;
+                float carved;
+                if (d <= bedHalf) carved = ch.src.bedHeight;
+                else if (lavaHalf > bedHalf && d <= lavaHalf)
+                    carved = Mathf.Lerp(ch.src.bedHeight, spec.lavaSurfaceHeight, (d - bedHalf) / (lavaHalf - bedHalf));
+                else
+                {
+                    float from = lavaHalf > bedHalf ? lavaHalf : bedHalf;
+                    float fromY = lavaHalf > bedHalf ? spec.lavaSurfaceHeight : ch.src.bedHeight;
+                    float k = Mathf.Clamp01((d - from) / Mathf.Max(0.01f, topHalf - from));
+                    // Linear when the lava step is used (matches section drawings), smooth otherwise.
+                    carved = Mathf.Lerp(fromY, y, lavaHalf > bedHalf ? k : Smooth(k));
+                }
                 y = Mathf.Min(y, carved);
             }
 
@@ -234,6 +275,10 @@ public class TerrainShapeSpecEditor : Editor
 
         foreach (var ch in ValidChannels(spec))
         {
+            int n = ch.pts.Count;
+            foreach (var (arr, label) in new[] { (ch.src.bedWidths, "bedWidths"), (ch.src.lavaWidths, "lavaWidths"), (ch.src.topWidths, "topWidths") })
+                if (arr != null && arr.Length > 0 && arr.Length != n)
+                    Err($"{ch.src.name}: {label} has {arr.Length} values but the path has {n} points; the list is being ignored.");
             if (ch.src.bedHeight >= spec.lavaSurfaceHeight)
                 Err($"{ch.src.name}: bed ({ch.src.bedHeight} m) is not below the lava surface ({spec.lavaSurfaceHeight} m).");
             for (int i = 0; i < ch.pts.Count; i++)
@@ -242,6 +287,15 @@ public class TerrainShapeSpecEditor : Editor
                 float y = H(new Vector3(p.x, 0, p.y));
                 if (y > spec.lavaSurfaceHeight) Err($"{ch.src.name}: point {i} is at {y:0.##} m, above the lava; the channel is not carved there (blocked or outside the terrain).");
             }
+        }
+
+        foreach (var r in ValidRamps(spec))
+        {
+            float ya = H(r.src.start.position), yb = H(r.src.end.position);
+            if (Mathf.Abs(ya - r.src.startHeight) > 0.2f || Mathf.Abs(yb - r.src.endHeight) > 0.2f)
+                Err($"{r.src.name}: ends are at {ya:0.##} m and {yb:0.##} m, expected {r.src.startHeight} and {r.src.endHeight} (a channel may cut it).");
+            float slope = Mathf.Atan2(Mathf.Abs(r.src.endHeight - r.src.startHeight), Vector2.Distance(r.a, r.b)) * Mathf.Rad2Deg;
+            if (slope > 30f) Warn($"{r.src.name}: slope is {slope:0.#}°; check the character controller and NavMesh can climb it.");
         }
 
         foreach (var br in spec.bridges)
@@ -275,6 +329,36 @@ public class TerrainShapeSpecEditor : Editor
 
     class Poly { public TerrainShapeSpec.Plateau src; public List<Vector2> pts; }
     class Line { public TerrainShapeSpec.Channel src; public List<Vector2> pts; }
+    class RampSeg { public TerrainShapeSpec.Ramp src; public Vector2 a, b; }
+
+    static List<RampSeg> ValidRamps(TerrainShapeSpec spec)
+    {
+        var list = new List<RampSeg>();
+        foreach (var r in spec.ramps)
+            if (r.start != null && r.end != null)
+                list.Add(new RampSeg { src = r, a = new Vector2(r.start.position.x, r.start.position.z), b = new Vector2(r.end.position.x, r.end.position.z) });
+        return list;
+    }
+
+    static bool PerPoint(float[] arr, int count) => arr != null && arr.Length == count;
+
+    // Half-widths at a point along the channel (segment index + position along it).
+    static void ChannelWidths(Line ch, int seg, float t, out float bedHalf, out float lavaHalf, out float topHalf)
+    {
+        var c = ch.src; int n = ch.pts.Count;
+        float At(float[] arr, float fallback) => PerPoint(arr, n) ? Mathf.Lerp(arr[seg], arr[Mathf.Min(seg + 1, n - 1)], t) : fallback;
+        bedHalf = At(c.bedWidths, c.bedWidth) * 0.5f;
+        lavaHalf = PerPoint(c.lavaWidths, n) ? At(c.lavaWidths, 0f) * 0.5f : 0f;
+        topHalf = At(c.topWidths, c.bedWidth + 2f * c.bankWidth) * 0.5f;
+        topHalf = Mathf.Max(topHalf, bedHalf + 0.01f);
+    }
+
+    static float MaxTopHalf(TerrainShapeSpec.Channel c, int n)
+    {
+        float m = (c.bedWidth + 2f * c.bankWidth) * 0.5f;
+        if (PerPoint(c.topWidths, n)) foreach (var w in c.topWidths) m = Mathf.Max(m, w * 0.5f);
+        return m;
+    }
 
     static List<Vector2> Points(Transform[] ts)
     {
@@ -312,7 +396,8 @@ public class TerrainShapeSpecEditor : Editor
             any = true;
         }
         foreach (var p in ValidPlateaus(spec)) Grow(p.pts, p.src.edgeWidth + 2f);
-        foreach (var c in ValidChannels(spec)) Grow(c.pts, c.src.bedWidth * 0.5f + c.src.bankWidth + 2f);
+        foreach (var c in ValidChannels(spec)) Grow(c.pts, MaxTopHalf(c.src, c.pts.Count) + 2f);
+        foreach (var r in ValidRamps(spec)) Grow(new List<Vector2> { r.a, r.b }, r.src.width * 0.5f + r.src.sideBlend + 2f);
         return any ? Rect.MinMaxRect(xMin, zMin, xMax, zMax) : new Rect();
     }
 
@@ -347,10 +432,18 @@ public class TerrainShapeSpecEditor : Editor
         return inside ? -d : d;
     }
 
-    static float DistanceToPolyline(Vector2 p, List<Vector2> line)
+    static float DistanceToPolyline(Vector2 p, List<Vector2> line) => DistanceToPolyline(p, line, out _, out _);
+
+    static float DistanceToPolyline(Vector2 p, List<Vector2> line, out int segment, out float t)
     {
-        float d = float.MaxValue;
-        for (int i = 0; i < line.Count - 1; i++) d = Mathf.Min(d, DistanceToSegment(p, line[i], line[i + 1]));
+        float d = float.MaxValue; segment = 0; t = 0f;
+        for (int i = 0; i < line.Count - 1; i++)
+        {
+            var a = line[i]; var ab = line[i + 1] - a; float len2 = ab.sqrMagnitude;
+            float k = len2 > 0f ? Mathf.Clamp01(Vector2.Dot(p - a, ab) / len2) : 0f;
+            float di = Vector2.Distance(p, a + ab * k);
+            if (di < d) { d = di; segment = i; t = k; }
+        }
         return d;
     }
 

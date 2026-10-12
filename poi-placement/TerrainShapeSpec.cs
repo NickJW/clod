@@ -32,6 +32,31 @@ public class TerrainShapeSpec : MonoBehaviour
         public float bedHeight = 4f;
         [Tooltip("Horizontal width of each bank, from the bed up to the surrounding terrain.")]
         public float bankWidth = 4f;
+
+        [Header("Optional: widths per path point (overrides bedWidth/bankWidth)")]
+        [Tooltip("Full width of the flat bed at each path point. Leave empty to use bedWidth.")]
+        public float[] bedWidths = new float[0];
+        [Tooltip("Full width at the lava surface at each path point. Leave empty to skip the lava step.")]
+        public float[] lavaWidths = new float[0];
+        [Tooltip("Full width at the top of the banks at each path point. Leave empty to use bedWidth + 2 x bankWidth.")]
+        public float[] topWidths = new float[0];
+    }
+
+    [Serializable]
+    public class Ramp
+    {
+        public string name = "Ramp";
+        [Tooltip("Centre of the low end of the ramp.")]
+        public Transform start;
+        [Tooltip("Centre of the high end of the ramp.")]
+        public Transform end;
+        public float width = 6f;
+        [Tooltip("World height at the start point.")]
+        public float startHeight = 0f;
+        [Tooltip("World height at the end point.")]
+        public float endHeight = 8f;
+        [Tooltip("Horizontal distance over which the ramp's sides blend into the surrounding terrain (0 = hard edge).")]
+        public float sideBlend = 1f;
     }
 
     [Serializable]
@@ -51,8 +76,13 @@ public class TerrainShapeSpec : MonoBehaviour
     public TerrainData backup;
 
     public Plateau[] plateaus = new Plateau[0];
+    public Ramp[] ramps = new Ramp[0];
     public Channel[] channels = new Channel[0];
     public Bridge[] bridges = new Bridge[0];
+
+    [Header("New terrain only")]
+    [Tooltip("World height that 'Flatten Whole Terrain' sets everywhere. Use only on a terrain made for this POI.")]
+    public float flattenHeight = 0f;
 
     [Header("Lava")]
     public float lavaSurfaceHeight = 6f;
@@ -73,6 +103,11 @@ public class TerrainShapeSpec : MonoBehaviour
         foreach (var p in plateaus) DrawLine(p.outline, true, p.topHeight);
         Gizmos.color = new Color(1f, 0.4f, 0.1f);
         foreach (var c in channels) DrawLine(c.path, false, c.bedHeight);
+        Gizmos.color = Color.yellow;
+        foreach (var r in ramps)
+            if (r.start != null && r.end != null)
+                Gizmos.DrawLine(new Vector3(r.start.position.x, r.startHeight, r.start.position.z),
+                                new Vector3(r.end.position.x, r.endHeight, r.end.position.z));
         Gizmos.color = Color.cyan;
         foreach (var b in bridges)
             if (b.endA != null && b.endB != null) Gizmos.DrawLine(b.endA.position, b.endB.position);
