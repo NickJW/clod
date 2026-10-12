@@ -94,6 +94,10 @@ Open questions: right side of the art is cropped; I will extend the seating area
   art squashes depth, so rooms are usually **deeper** than they look.
 - Check that every prefab named in the manifest actually exists in the project before you start.
 
+### B1b. Terrain first, if the POI needs it
+If the site needs plateaus, valleys, channels or cliffs, follow `TERRAIN_GUIDE.md` **before**
+placing any structure. Don't sculpt with brushes; use the terrain sheet and `TerrainShapeSpec`.
+
 ### B2. Build in passes, big to small
 1. **Structure** (floors, walls, roof, stairs, doors, windows) on the grid. Check for gaps.
 2. **Large furniture and focal pieces**: the things that define the layout.
